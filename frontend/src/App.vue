@@ -1,9 +1,13 @@
 <script setup>
-import HelloWorld from './components/HelloWorld.vue'</script>
+import Metricas from './components/Metricas.vue'
+</script>
 
 <template>
-  <img id="logo" alt="Wails logo" src="./assets/images/logo-universal.png"/>
-  <HelloWorld/>
+  <v-app>
+    <v-main>
+      <Metricas />
+    </v-main>
+  </v-app>
 </template>
 
 <style>

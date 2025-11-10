@@ -28,6 +28,7 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
+		WindowStartState: options.Maximised,
 	})
 
 	if err != nil {
