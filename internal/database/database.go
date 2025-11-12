@@ -63,7 +63,8 @@ func (r *Repository) initTables() error {
 			descricao TEXT NOT NULL,
 			valor REAL NOT NULL,
 			data TEXT NOT NULL,
-			categoria TEXT NOT NULL
+			categoria TEXT NOT NULL,
+			ativo INTEGER NOT NULL DEFAULT 1
 		);
 	`
 
@@ -74,13 +75,40 @@ func (r *Repository) initTables() error {
 // Recebe os dados do lançamento e salva no banco
 func (r *Repository) SalvarLancamento(l models.Lancamento) error {
 	query := `
-		INSERT INTO lancamento (uuid, descricao, valor, data, categoria)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO lancamentos (uuid, descricao, valor, data, categoria, ativo)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.Exec(query, l.UUID, l.Descricao, l.Valor, l.Data, l.Categoria)
+	_, err := r.db.Exec(query, l.UUID, l.Descricao, l.Valor, l.Data, l.Categoria, l.Ativo)
 	if err != nil {
 		return fmt.Errorf("erro ao inserir lançamento: %w", err)
+	}
+
+	return nil
+}
+
+// Executa um "soft delete" atualizando o campo 'ativo' para 0 (false)
+func (r *Repository) SoftDeleteLancamento(uuid string) error {
+	query := `
+		UPDATE lancamentos
+		SET ativo = 0
+		WHERE uuid = ?;
+	`
+
+	// Executa o SQL, passando o UUID como argumento.
+	res, err := r.db.Exec(query, uuid)
+	if err != nil {
+		return fmt.Errorf("erro ao executar o soft delete: %w", err)
+	}
+
+	// Verificando se algum registro foi afetado, confirmando o SoftDelete
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("erro ao verificar linhas afetadas: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("nenhum lançamento encontrado com o UUID fornecido: %s", uuid)
 	}
 
 	return nil
