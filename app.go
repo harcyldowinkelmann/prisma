@@ -3,11 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"prisma/internal/database"
+	"prisma/internal/models"
+
+	"github.com/google/uuid"
 )
 
 // App struct
 type App struct {
 	ctx context.Context
+	db	*database.Repository
 }
 
 // NewApp creates a new App application struct
@@ -19,9 +25,41 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// Inicializa o repositório do banco de dados
+	repo, err := database.NewRepository()
+	if err != nil {
+		// TODO: Em vez de um Println, usar o Runtime
+		// do Wails para mostrar um diálogo de erro fatal.
+		fmt.Printf("ERRO FATAL AO INICIAR O BANCO: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Injeta o repositório na struct App
+	a.db = repo
 }
 
-// Greet returns a greeting for the given name
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
+// SalvarLancamento é a função "ponte" que o Vue irá chamar.
+// TODO: Validar os dados que chegam antes de repassar para a função de cadastro
+func (a *App) SalvarLancamento(descricao string, valor float64, data string, categoria string) (string, error) {
+	novoUUID := uuid.New()
+
+	// 2. Criar o modelo de dados
+	novoLancamento := models.Lancamento{
+		UUID:        novoUUID,
+		Descricao: descricao,
+		Valor:     valor,
+		Data:      data,
+		Categoria: categoria,
+	}
+
+	// 3. Chamar a camada de "backend" (o Repositório)
+	err := a.db.SalvarLancamento(novoLancamento)
+	if err != nil {
+		// Retorna o erro para o Vue.js
+		return "", fmt.Errorf("erro ao salvar no banco: %w", err)
+	}
+
+	// Retorna uma string de sucesso e 'nil' para o erro
+	return "Lançamento salvo com sucesso!", nil
 }
