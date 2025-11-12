@@ -8,4 +8,12 @@ type Lancamento struct {
 	Valor		float64		`json:"valor"`
 	Data		string		`json:"data"`
 	Categoria	string		`json:"categoria"`
+	Ativo bool `json:"ativo"`
+}
+
+type LancamentoFiltros struct {
+	Descricao 	*string 	`json:"descricao"`
+	Valor     	*float64 	`json:"valor"`
+	Data      	*string 	`json:"data"`
+	Categoria 	*string 	`json:"categoria"`
 }
