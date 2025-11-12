@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"prisma/internal/models"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -112,4 +113,85 @@ func (r *Repository) SoftDeleteLancamento(uuid string) error {
 	}
 
 	return nil
+}
+
+// Busca lançamentos ativos com base em seus filtros opcionais
+func (r *Repository) BuscarLancamentos(filtros models.LancamentoFiltros) ([]models.Lancamento, error) {
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString("SELECT * FROM lancamentos WHERE ativo = 1")
+
+	// args (argumentos) são os valores para os '?'
+	var args []interface{}
+	
+	// Filtro por Descricao (usando LIKE)
+	if filtros.Descricao != nil && *filtros.Descricao != "" {
+		queryBuilder.WriteString(" AND descricao LIKE ?")
+		args = append(args, "%" + *filtros.Descricao + "%")
+	}
+
+	// Filtro por Valor (exato)
+	if filtros.Valor != nil {
+		queryBuilder.WriteString(" AND valor = ?")
+		args = append(args, *filtros.Valor)
+	}
+
+	// Filtro por Data (exata)
+	if filtros.Data != nil && *filtros.Data != "" {
+		queryBuilder.WriteString(" AND data = ?")
+		args = append(args, *filtros.Data)
+	}
+
+	// Filtro por Categoria (exata)
+	if filtros.Categoria != nil && *filtros.Categoria != "" {
+		queryBuilder.WriteString(" AND categoria = ?")
+		args = append(args, *filtros.Categoria)
+	}
+
+	queryBuilder.WriteString(" ORDER BY data DESC;")
+
+	rows, err := r.db.Query(queryBuilder.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao executar busca dinâmica: %w", err)
+	}
+	defer rows.Close()
+
+	return r.scanLancamentos(rows)
+}
+
+// Busca um Lançamento ativo pelo seu UUID
+func (r *Repository) BuscarLancamentoPorUUID(uuid string) (models.Lancamento, error) {
+	query := "SELECT * FROM lancamentos WHERE uuid = ? AND ativo = 1;"
+
+	var l models.Lancamento
+
+	err := r.db.QueryRow(query, uuid).Scan(&l.UUID, &l.Descricao, &l.Valor, &l.Data, &l.Categoria, &l.Ativo)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return l, fmt.Errorf("nenhum lançamento ativo encontrado com o UUID: %s", uuid)
+		}
+		return l, fmt.Errorf("erro ao buscar por UUID: %w", err)
+	}
+
+	return l, nil
+}
+
+// --- FUNÇÕES AUXILIARES ---
+
+// scanLancamentos (Helper)
+func (r *Repository) scanLancamentos(rows *sql.Rows) ([]models.Lancamento, error) {
+	var lancamentos []models.Lancamento
+
+	for rows.Next() {
+		var l models.Lancamento
+		if err := rows.Scan(&l.UUID, &l.Descricao, &l.Valor, &l.Data, &l.Categoria, &l.Ativo); err != nil {
+			return nil, fmt.Errorf("erro ao escanear linha: %w", err)
+		}
+		lancamentos = append(lancamentos, l)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro nas linhas do resultado: %w", err)
+	}
+
+	return lancamentos, nil
 }

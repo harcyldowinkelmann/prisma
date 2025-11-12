@@ -81,3 +81,14 @@ func (a *App) SoftDeleteLancamento(uuid string) (string, error) {
 	// Retorna uma string de sucesso e 'nil' para o erro
 	return "Lançamento arquivado com sucesso!", nil
 }
+
+// Busca um Lançamento ativo pelo seu UUID
+func (a *App) BuscarLancamentoPorUUID(uuid string) (models.Lancamento, error) {
+	return a.db.BuscarLancamentoPorUUID(uuid)
+}
+
+// BuscarLancamentos é a "ponte" para a busca dinâmica.
+// Ex: { "descricao": "mercado", "categoria": "Despesas Variáveis" }
+func (a *App) BuscarLancamentos(filtros models.LancamentoFiltros) ([]models.Lancamento, error) {
+	return a.db.BuscarLancamentos(filtros)
+}
