@@ -29,7 +29,7 @@
 </template>
 
 <script setup>
-defineProps({
+const props = defineProps({
   title: {
     type: String,
     required: true,
@@ -40,8 +40,9 @@ defineProps({
   },
 });
 
+const emit = defineEmits(['request-add']);
 
 function onAddClick() {
-  console.log('Botão de adicionar clicado');
+  emit('request-add', props.title)
 }
 </script>
