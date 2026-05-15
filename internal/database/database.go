@@ -65,22 +65,43 @@ func (r *Repository) initTables() error {
 			amount REAL NOT NULL,
 			date TEXT NOT NULL,
 			category TEXT NOT NULL,
+			subcategory TEXT DEFAULT '',
+			payment_method TEXT DEFAULT '',
+			installments TEXT DEFAULT '',
+			tags TEXT DEFAULT '',
+			is_paid INTEGER NOT NULL DEFAULT 1,
 			active INTEGER NOT NULL DEFAULT 1
 		);
 	`
 
 	_, err := r.db.Exec(query)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Migrate older databases by adding the new columns if they don't exist
+	alterQueries := []string{
+		"ALTER TABLE transactions ADD COLUMN subcategory TEXT DEFAULT '';",
+		"ALTER TABLE transactions ADD COLUMN payment_method TEXT DEFAULT '';",
+		"ALTER TABLE transactions ADD COLUMN installments TEXT DEFAULT '';",
+		"ALTER TABLE transactions ADD COLUMN tags TEXT DEFAULT '';",
+		"ALTER TABLE transactions ADD COLUMN is_paid INTEGER NOT NULL DEFAULT 1;",
+	}
+	for _, q := range alterQueries {
+		r.db.Exec(q) // Ignored if columns already exist
+	}
+
+	return nil
 }
 
 // Receives transaction data and saves it to the database
 func (r *Repository) SaveTransaction(t models.Transaction) error {
 	query := `
-		INSERT INTO transactions (uuid, description, amount, date, category, active)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO transactions (uuid, description, amount, date, category, subcategory, payment_method, installments, tags, is_paid, active)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.Exec(query, t.UUID, t.Description, t.Amount, t.Date, t.Category, t.Active)
+	_, err := r.db.Exec(query, t.UUID, t.Description, t.Amount, t.Date, t.Category, t.Subcategory, t.PaymentMethod, t.Installments, t.Tags, t.IsPaid, t.Active)
 	if err != nil {
 		return fmt.Errorf("error inserting transaction: %w", err)
 	}
@@ -164,7 +185,7 @@ func (r *Repository) GetTransactionByID(uuid string) (models.Transaction, error)
 
 	var t models.Transaction
 
-	err := r.db.QueryRow(query, uuid).Scan(&t.UUID, &t.Description, &t.Amount, &t.Date, &t.Category, &t.Active)
+	err := r.db.QueryRow(query, uuid).Scan(&t.UUID, &t.Description, &t.Amount, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return t, fmt.Errorf("no active transaction found with the UUID: %s", uuid)
@@ -183,7 +204,7 @@ func (r *Repository) scanTransactions(rows *sql.Rows) ([]models.Transaction, err
 
 	for rows.Next() {
 		var t models.Transaction
-		if err := rows.Scan(&t.UUID, &t.Description, &t.Amount, &t.Date, &t.Category, &t.Active); err != nil {
+		if err := rows.Scan(&t.UUID, &t.Description, &t.Amount, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Active); err != nil {
 			return nil, fmt.Errorf("error scanning row: %w", err)
 		}
 		transactions = append(transactions, t)

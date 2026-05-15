@@ -6,6 +6,11 @@ export namespace models {
 	    amount: number;
 	    date: string;
 	    category: string;
+	    subcategory: string;
+	    payment_method: string;
+	    installments: string;
+	    tags: string;
+	    is_paid: boolean;
 	    active: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -19,6 +24,11 @@ export namespace models {
 	        this.amount = source["amount"];
 	        this.date = source["date"];
 	        this.category = source["category"];
+	        this.subcategory = source["subcategory"];
+	        this.payment_method = source["payment_method"];
+	        this.installments = source["installments"];
+	        this.tags = source["tags"];
+	        this.is_paid = source["is_paid"];
 	        this.active = source["active"];
 	    }
 	}

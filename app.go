@@ -41,17 +41,22 @@ func (a *App) startup(ctx context.Context) {
 
 // SaveTransaction is the bridge function the Vue frontend will call.
 // TODO: Validate incoming data before passing it to the save function
-func (a *App) SaveTransaction(description string, amount float64, date string, category string) (string, error) {
+func (a *App) SaveTransaction(description string, amount float64, date string, category string, subcategory string, paymentMethod string, installments string, tags string, isPaid bool) (string, error) {
 	newUUID := uuid.New()
 
 	// 2. Create the data model
 	newTransaction := models.Transaction{
-		UUID:        newUUID,
-		Description: description,
-		Amount:      amount,
-		Date:        date,
-		Category:    category,
-		Active:      true,
+		UUID:          newUUID,
+		Description:   description,
+		Amount:        amount,
+		Date:          date,
+		Category:      category,
+		Subcategory:   subcategory,
+		PaymentMethod: paymentMethod,
+		Installments:  installments,
+		Tags:          tags,
+		IsPaid:        isPaid,
+		Active:        true,
 	}
 
 	// 3. Call the "backend" layer (Repository)

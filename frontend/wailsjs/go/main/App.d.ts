@@ -6,6 +6,6 @@ export function GetTransactionByID(arg1:string):Promise<models.Transaction>;
 
 export function GetTransactions(arg1:models.TransactionFilters):Promise<Array<models.Transaction>>;
 
-export function SaveTransaction(arg1:string,arg2:number,arg3:string,arg4:string):Promise<string>;
+export function SaveTransaction(arg1:string,arg2:number,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:boolean):Promise<string>;
 
 export function SoftDeleteTransaction(arg1:string):Promise<string>;

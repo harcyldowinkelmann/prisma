@@ -10,8 +10,8 @@ export function GetTransactions(arg1) {
   return window['go']['main']['App']['GetTransactions'](arg1);
 }
 
-export function SaveTransaction(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['SaveTransaction'](arg1, arg2, arg3, arg4);
+export function SaveTransaction(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
+  return window['go']['main']['App']['SaveTransaction'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
 
 export function SoftDeleteTransaction(arg1) {
