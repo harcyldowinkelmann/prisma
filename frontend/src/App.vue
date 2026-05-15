@@ -75,6 +75,7 @@ onMounted(() => {
 // Chama quando o modal termina de salvar com sucesso
 function onTransactionSaved() {
   console.log("Transação salva! Hora de recarregar os dados...");
+  loadAllData();
 }
 </script>
 
