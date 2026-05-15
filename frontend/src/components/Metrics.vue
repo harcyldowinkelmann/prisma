@@ -1,6 +1,6 @@
 <template>
     <v-container fluid>
-        <v-sheet class="ma-2 pa-4 border-sm" rounded="lg">
+        <v-sheet class="pa-4 border-sm" rounded="lg">
             <v-row no-gutters>
                 <v-col cols="12">
                     <div class="mb-4">
