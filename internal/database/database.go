@@ -59,13 +59,13 @@ func NewRepository() (*Repository, error) {
 // initTables executa a migração (schema) do banco
 func (r *Repository) initTables() error {
 	query := `
-		CREATE TABLE IF NOT EXISTS lancamentos (
+		CREATE TABLE IF NOT EXISTS transactions (
 			uuid TEXT PRIMARY KEY,
-			descricao TEXT NOT NULL,
-			valor REAL NOT NULL,
-			data TEXT NOT NULL,
-			categoria TEXT NOT NULL,
-			ativo INTEGER NOT NULL DEFAULT 1
+			description TEXT NOT NULL,
+			amount REAL NOT NULL,
+			date TEXT NOT NULL,
+			category TEXT NOT NULL,
+			active INTEGER NOT NULL DEFAULT 1
 		);
 	`
 
@@ -73,125 +73,125 @@ func (r *Repository) initTables() error {
 	return err
 }
 
-// Recebe os dados do lançamento e salva no banco
-func (r *Repository) SalvarLancamento(l models.Lancamento) error {
+// Receives transaction data and saves it to the database
+func (r *Repository) SaveTransaction(t models.Transaction) error {
 	query := `
-		INSERT INTO lancamentos (uuid, descricao, valor, data, categoria, ativo)
+		INSERT INTO transactions (uuid, description, amount, date, category, active)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.Exec(query, l.UUID, l.Descricao, l.Valor, l.Data, l.Categoria, l.Ativo)
+	_, err := r.db.Exec(query, t.UUID, t.Description, t.Amount, t.Date, t.Category, t.Active)
 	if err != nil {
-		return fmt.Errorf("erro ao inserir lançamento: %w", err)
+		return fmt.Errorf("error inserting transaction: %w", err)
 	}
 
 	return nil
 }
 
-// Executa um "soft delete" atualizando o campo 'ativo' para 0 (false)
-func (r *Repository) SoftDeleteLancamento(uuid string) error {
+// Executes a "soft delete" by updating the 'active' field to 0 (false)
+func (r *Repository) SoftDeleteTransaction(uuid string) error {
 	query := `
-		UPDATE lancamentos
-		SET ativo = 0
+		UPDATE transactions
+		SET active = 0
 		WHERE uuid = ?;
 	`
 
-	// Executa o SQL, passando o UUID como argumento.
+	// Execute SQL, passing UUID as argument.
 	res, err := r.db.Exec(query, uuid)
 	if err != nil {
-		return fmt.Errorf("erro ao executar o soft delete: %w", err)
+		return fmt.Errorf("error executing soft delete: %w", err)
 	}
 
-	// Verificando se algum registro foi afetado, confirmando o SoftDelete
+	// Verifying if any record was affected, confirming SoftDelete
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("erro ao verificar linhas afetadas: %w", err)
+		return fmt.Errorf("error verifying affected rows: %w", err)
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("nenhum lançamento encontrado com o UUID fornecido: %s", uuid)
+		return fmt.Errorf("no transaction found with the provided UUID: %s", uuid)
 	}
 
 	return nil
 }
 
-// Busca lançamentos ativos com base em seus filtros opcionais
-func (r *Repository) BuscarLancamentos(filtros models.LancamentoFiltros) ([]models.Lancamento, error) {
+// Fetches active transactions based on optional filters
+func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]models.Transaction, error) {
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString("SELECT * FROM lancamentos WHERE ativo = 1")
+	queryBuilder.WriteString("SELECT * FROM transactions WHERE active = 1")
 
-	// args (argumentos) são os valores para os '?'
+	// args are the values for the '?' placeholders
 	var args []interface{}
 	
-	// Filtro por Descricao (usando LIKE)
-	if filtros.Descricao != nil && *filtros.Descricao != "" {
-		queryBuilder.WriteString(" AND descricao LIKE ?")
-		args = append(args, "%" + *filtros.Descricao + "%")
+	// Filter by Description (using LIKE)
+	if filters.Description != nil && *filters.Description != "" {
+		queryBuilder.WriteString(" AND description LIKE ?")
+		args = append(args, "%" + *filters.Description + "%")
 	}
 
-	// Filtro por Valor (exato)
-	if filtros.Valor != nil {
-		queryBuilder.WriteString(" AND valor = ?")
-		args = append(args, *filtros.Valor)
+	// Filter by Amount (exact)
+	if filters.Amount != nil {
+		queryBuilder.WriteString(" AND amount = ?")
+		args = append(args, *filters.Amount)
 	}
 
-	// Filtro por Data (exata)
-	if filtros.Data != nil && *filtros.Data != "" {
-		queryBuilder.WriteString(" AND data = ?")
-		args = append(args, *filtros.Data)
+	// Filter by Date (exact)
+	if filters.Date != nil && *filters.Date != "" {
+		queryBuilder.WriteString(" AND date = ?")
+		args = append(args, *filters.Date)
 	}
 
-	// Filtro por Categoria (exata)
-	if filtros.Categoria != nil && *filtros.Categoria != "" {
-		queryBuilder.WriteString(" AND categoria = ?")
-		args = append(args, *filtros.Categoria)
+	// Filter by Category (exact)
+	if filters.Category != nil && *filters.Category != "" {
+		queryBuilder.WriteString(" AND category = ?")
+		args = append(args, *filters.Category)
 	}
 
-	queryBuilder.WriteString(" ORDER BY data DESC;")
+	queryBuilder.WriteString(" ORDER BY date DESC;")
 
 	rows, err := r.db.Query(queryBuilder.String(), args...)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao executar busca dinâmica: %w", err)
+		return nil, fmt.Errorf("error executing dynamic search: %w", err)
 	}
 	defer rows.Close()
 
-	return r.scanLancamentos(rows)
+	return r.scanTransactions(rows)
 }
 
-// Busca um Lançamento ativo pelo seu UUID
-func (r *Repository) BuscarLancamentoPorUUID(uuid string) (models.Lancamento, error) {
-	query := "SELECT * FROM lancamentos WHERE uuid = ? AND ativo = 1;"
+// Fetches an active Transaction by its UUID
+func (r *Repository) GetTransactionByID(uuid string) (models.Transaction, error) {
+	query := "SELECT * FROM transactions WHERE uuid = ? AND active = 1;"
 
-	var l models.Lancamento
+	var t models.Transaction
 
-	err := r.db.QueryRow(query, uuid).Scan(&l.UUID, &l.Descricao, &l.Valor, &l.Data, &l.Categoria, &l.Ativo)
+	err := r.db.QueryRow(query, uuid).Scan(&t.UUID, &t.Description, &t.Amount, &t.Date, &t.Category, &t.Active)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return l, fmt.Errorf("nenhum lançamento ativo encontrado com o UUID: %s", uuid)
+			return t, fmt.Errorf("no active transaction found with the UUID: %s", uuid)
 		}
-		return l, fmt.Errorf("erro ao buscar por UUID: %w", err)
+		return t, fmt.Errorf("error searching by UUID: %w", err)
 	}
 
-	return l, nil
+	return t, nil
 }
 
-// --- FUNÇÕES AUXILIARES ---
+// --- HELPER FUNCTIONS ---
 
-// scanLancamentos (Helper)
-func (r *Repository) scanLancamentos(rows *sql.Rows) ([]models.Lancamento, error) {
-	var lancamentos []models.Lancamento
+// scanTransactions (Helper)
+func (r *Repository) scanTransactions(rows *sql.Rows) ([]models.Transaction, error) {
+	var transactions []models.Transaction
 
 	for rows.Next() {
-		var l models.Lancamento
-		if err := rows.Scan(&l.UUID, &l.Descricao, &l.Valor, &l.Data, &l.Categoria, &l.Ativo); err != nil {
-			return nil, fmt.Errorf("erro ao escanear linha: %w", err)
+		var t models.Transaction
+		if err := rows.Scan(&t.UUID, &t.Description, &t.Amount, &t.Date, &t.Category, &t.Active); err != nil {
+			return nil, fmt.Errorf("error scanning row: %w", err)
 		}
-		lancamentos = append(lancamentos, l)
+		transactions = append(transactions, t)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("erro nas linhas do resultado: %w", err)
+		return nil, fmt.Errorf("error in result rows: %w", err)
 	}
 
-	return lancamentos, nil
+	return transactions, nil
 }

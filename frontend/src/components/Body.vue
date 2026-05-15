@@ -16,21 +16,21 @@
     <v-card-text class="pa-0 overflow-y-auto" style="max-height: 400px;">
 
       <div v-if="items.length === 0" class="pa-4 text-caption text-disabled text-center">
-        Nenhum lançamento.
+        No transactions.
       </div>
 
       <v-list v-else lines="two" density="compact">
         <v-list-item
           v-for="item in items"
           :key="item.id"
-          :title="item.descricao"
-          :subtitle="formatData(item.data)"
+          :title="item.description"
+          :subtitle="formatDate(item.date)"
         >
           <template v-slot:append>
             <div
               class="text-body-2 font-weight-bold"
             >
-              {{  formatCurrency(item.valor)  }}
+              {{  formatCurrency(item.amount)  }}
             </div>
           </template>
         </v-list-item>
@@ -69,19 +69,19 @@ function onAddClick() {
 }
 
 const totalValue = computed(() => {
-  return props.items.reduce((acc, item) => acc + item.valor, 0)
+  return props.items.reduce((acc, item) => acc + item.amount, 0)
 });
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat('pt-BR', {
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'BRL',
+    currency: 'USD',
   }).format(value);
 }
 
-function formatData(isoDate) {
+function formatDate(isoDate) {
   if (!isoDate) return '';
   const [year, month, day] = isoDate.split('-');
-  return `${day}/${month}/${year}`;
+  return `${month}/${day}/${year}`;
 }
 </script>

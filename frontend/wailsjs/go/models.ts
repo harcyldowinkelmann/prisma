@@ -1,43 +1,43 @@
 export namespace models {
 	
-	export class Lancamento {
+	export class Transaction {
 	    id: number[];
-	    descricao: string;
-	    valor: number;
-	    data: string;
-	    categoria: string;
-	    ativo: boolean;
+	    description: string;
+	    amount: number;
+	    date: string;
+	    category: string;
+	    active: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new Lancamento(source);
+	        return new Transaction(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
-	        this.descricao = source["descricao"];
-	        this.valor = source["valor"];
-	        this.data = source["data"];
-	        this.categoria = source["categoria"];
-	        this.ativo = source["ativo"];
+	        this.description = source["description"];
+	        this.amount = source["amount"];
+	        this.date = source["date"];
+	        this.category = source["category"];
+	        this.active = source["active"];
 	    }
 	}
-	export class LancamentoFiltros {
-	    descricao?: string;
-	    valor?: number;
-	    data?: string;
-	    categoria?: string;
+	export class TransactionFilters {
+	    description?: string;
+	    amount?: number;
+	    date?: string;
+	    category?: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new LancamentoFiltros(source);
+	        return new TransactionFilters(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.descricao = source["descricao"];
-	        this.valor = source["valor"];
-	        this.data = source["data"];
-	        this.categoria = source["categoria"];
+	        this.description = source["description"];
+	        this.amount = source["amount"];
+	        this.date = source["date"];
+	        this.category = source["category"];
 	    }
 	}
 

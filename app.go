@@ -26,69 +26,69 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
-	// Inicializa o repositório do banco de dados
+	// Initializes the database repository
 	repo, err := database.NewRepository()
 	if err != nil {
-		// TODO: Em vez de um Println, usar o Runtime
-		// do Wails para mostrar um diálogo de erro fatal.
-		fmt.Printf("ERRO FATAL AO INICIAR O BANCO: %v\n", err)
+		// TODO: Instead of Println, use Wails Runtime
+		// to show a fatal error dialog.
+		fmt.Printf("FATAL ERROR INITIALIZING DATABASE: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Injeta o repositório na struct App
+	// Injects the repository into the App struct
 	a.db = repo
 }
 
-// SalvarLancamento é a função "ponte" que o Vue irá chamar.
-// TODO: Validar os dados que chegam antes de repassar para a função de cadastro
-func (a *App) SalvarLancamento(descricao string, valor float64, data string, categoria string) (string, error) {
-	novoUUID := uuid.New()
+// SaveTransaction is the bridge function the Vue frontend will call.
+// TODO: Validate incoming data before passing it to the save function
+func (a *App) SaveTransaction(description string, amount float64, date string, category string) (string, error) {
+	newUUID := uuid.New()
 
-	// 2. Criar o modelo de dados
-	novoLancamento := models.Lancamento{
-		UUID:        novoUUID,
-		Descricao: descricao,
-		Valor:     valor,
-		Data:      data,
-		Categoria: categoria,
-		Ativo: true,
+	// 2. Create the data model
+	newTransaction := models.Transaction{
+		UUID:        newUUID,
+		Description: description,
+		Amount:      amount,
+		Date:        date,
+		Category:    category,
+		Active:      true,
 	}
 
-	// 3. Chamar a camada de "backend" (o Repositório)
-	err := a.db.SalvarLancamento(novoLancamento)
+	// 3. Call the "backend" layer (Repository)
+	err := a.db.SaveTransaction(newTransaction)
 	if err != nil {
-		// Retorna o erro para o Vue.js
-		return "", fmt.Errorf("erro ao salvar no banco: %w", err)
+		// Return error to Vue.js
+		return "", fmt.Errorf("error saving to database: %w", err)
 	}
 
-	// Retorna uma string de sucesso e 'nil' para o erro
-	return "Lançamento salvo com sucesso!", nil
+	// Return a success string and 'nil' for error
+	return "Transaction saved successfully!", nil
 }
 
-// Função "ponte" que o Vue irá chamar para realizar o Soft Delete
-// Recebe o UUID (como string) e repassa para o repositório
-func (a *App) SoftDeleteLancamento(uuid string) (string, error) {
+// Bridge function the Vue frontend will call to perform Soft Delete
+// Receives UUID (as string) and passes it to the repository
+func (a *App) SoftDeleteTransaction(uuid string) (string, error) {
 	if uuid == "" {
-		return "", fmt.Errorf("UUID fornecido está vazio")
+		return "", fmt.Errorf("provided UUID is empty")
 	}
 
-	// Chamar a camada de "backend" (o Repositório)
-	err := a.db.SoftDeleteLancamento(uuid)
+	// Call the "backend" layer (Repository)
+	err := a.db.SoftDeleteTransaction(uuid)
 	if err != nil {
 		return "", err
 	}
 
-	// Retorna uma string de sucesso e 'nil' para o erro
-	return "Lançamento arquivado com sucesso!", nil
+	// Return a success string and 'nil' for error
+	return "Transaction archived successfully!", nil
 }
 
-// Busca um Lançamento ativo pelo seu UUID
-func (a *App) BuscarLancamentoPorUUID(uuid string) (models.Lancamento, error) {
-	return a.db.BuscarLancamentoPorUUID(uuid)
+// Fetches an active Transaction by its UUID
+func (a *App) GetTransactionByID(uuid string) (models.Transaction, error) {
+	return a.db.GetTransactionByID(uuid)
 }
 
-// BuscarLancamentos é a "ponte" para a busca dinâmica.
-// Ex: { "descricao": "mercado", "categoria": "Despesas Variáveis" }
-func (a *App) BuscarLancamentos(filtros models.LancamentoFiltros) ([]models.Lancamento, error) {
-	return a.db.BuscarLancamentos(filtros)
+// GetTransactions is the bridge for dynamic search.
+// Ex: { "description": "market", "category": "Variable Expenses" }
+func (a *App) GetTransactions(filters models.TransactionFilters) ([]models.Transaction, error) {
+	return a.db.GetTransactions(filters)
 }

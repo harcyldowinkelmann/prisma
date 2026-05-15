@@ -1,53 +1,53 @@
 <template>
   <v-app>
     <v-main>
-      <Metricas />
+      <Metrics />
 
       <v-divider />
       
       <v-container fluid class="pa-4">
-          <!-- Esta v-row segura as 3 colunas -->
+          <!-- This v-row holds the 3 columns -->
           <v-row dense>
           
-            <!-- Coluna de 'Receitas' -->
+            <!-- Incomes Column -->
             <v-col cols="12" md="4">
-                <Body title="Receitas" :items="receitas" @request-add="openModal" />
+                <Body title="Incomes" :items="incomes" @request-add="openModal" />
             </v-col>
 
-            <!-- COLUNA 2: DESPESAS FIXAS -->
+            <!-- COLUMN 2: FIXED EXPENSES -->
             <v-col cols="12" md="4">
-                <Body title="Despesas Fixas" :items="despesasFixas" @request-add="openModal" />
+                <Body title="Fixed Expenses" :items="fixedExpenses" @request-add="openModal" />
             </v-col>
 
-            <!-- COLUNA 3: DESPESAS VARIÁVEIS -->
+            <!-- COLUMN 3: VARIABLE EXPENSES -->
             <v-col cols="12" md="4">
-                <Body title="Despesas Variáveis" :items="despesasVariaveis" @request-add="openModal" />
+                <Body title="Variable Expenses" :items="variableExpenses" @request-add="openModal" />
             </v-col>
           </v-row>
       </v-container>
 
-      <CadastroModal
+      <TransactionModal
         v-model="isModalOpen"
-        :categoria="selectedCategory"
+        :category="selectedCategory"
         @saved="onTransactionSaved"
-      ></CadastroModal>
+      ></TransactionModal>
     </v-main>
   </v-app>
 </template>
 
 <script setup>
-import Metricas from './components/Metricas.vue'
+import Metrics from './components/Metrics.vue'
 import Body from './components/Body.vue';
-import CadastroModal from './components/CadastroModal.vue';
+import TransactionModal from './components/TransactionModal.vue';
 import { ref, onMounted } from 'vue';
-import { BuscarLancamentos } from '../wailsjs/go/main/App';
+import { GetTransactions } from '../wailsjs/go/main/App';
 
 const isModalOpen = ref(false);
 const selectedCategory = ref('');
 
-const receitas = ref([]);
-const despesasFixas = ref([]);
-const despesasVariaveis = ref([]);
+const incomes = ref([]);
+const fixedExpenses = ref([]);
+const variableExpenses = ref([]);
 
 function openModal(categoryTitle) {
   selectedCategory.value = categoryTitle;
@@ -56,15 +56,15 @@ function openModal(categoryTitle) {
 
 async function loadAllData() {
   try {
-    receitas.value = await BuscarLancamentos({ categoria: "Receitas" });
+    incomes.value = await GetTransactions({ category: "Incomes" });
 
-    despesasFixas.value = await BuscarLancamentos({ categoria: "Despesas Fixas" });
+    fixedExpenses.value = await GetTransactions({ category: "Fixed Expenses" });
 
-    despesasVariaveis.value = await BuscarLancamentos({ categoria: "Despesas Variáveis" });
+    variableExpenses.value = await GetTransactions({ category: "Variable Expenses" });
     
-    console.log("Dados recarregados do SQLite com sucesso.");
+    console.log("Data reloaded from SQLite successfully.");
   } catch (err) {
-    console.error("Erro ao carregar dados:", err);
+    console.error("Error loading data:", err);
   }
 }
 
@@ -72,9 +72,9 @@ onMounted(() => {
   loadAllData();
 });
 
-// Chama quando o modal termina de salvar com sucesso
+// Called when modal finishes saving successfully
 function onTransactionSaved() {
-  console.log("Transação salva! Hora de recarregar os dados...");
+  console.log("Transaction saved! Time to reload data...");
   loadAllData();
 }
 </script>
