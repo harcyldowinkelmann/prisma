@@ -1,12 +1,18 @@
 <template>
   <v-card height="100%" class="d-flex flex-column">
-    <v-card-title class="d-flex align-center">
-      <span>{{ title }}</span>
+    <v-card-title class="d-flex align-center pa-2">
+      <span class="text-subtitle-1 font-weight-bold ml-2">{{ title }}</span>
       <v-spacer></v-spacer>
+      <!-- Buttons deferred for future logic -->
+      <v-btn icon="mdi-filter" variant="text" size="small" color="grey"></v-btn>
+      <v-btn icon="mdi-pencil" variant="text" size="small" color="grey"></v-btn>
+      <v-btn icon="mdi-eye-off" variant="text" size="small" color="error"></v-btn>
+      
       <v-btn
         icon="mdi-plus-box"
         variant="text"
         size="small"
+        color="primary"
         @click="onAddClick"
       ></v-btn>
     </v-card-title>

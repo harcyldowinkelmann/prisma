@@ -8,6 +8,7 @@ import (
 	"prisma/internal/models"
 	"strings"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
@@ -84,11 +85,20 @@ func (r *Repository) initTables() error {
 		`CREATE TABLE IF NOT EXISTS subcategories (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
 		`CREATE TABLE IF NOT EXISTS payment_methods (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
 		`CREATE TABLE IF NOT EXISTS tags (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
+		`CREATE TABLE IF NOT EXISTS categories (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, type INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
 	}
 	for _, q := range settingsQueries {
 		if _, err := r.db.Exec(q); err != nil {
 			return err
 		}
+	}
+
+	// Seed default categories if none exist
+	var count int
+	r.db.QueryRow("SELECT COUNT(*) FROM categories").Scan(&count)
+	if count == 0 {
+		seedQuery := "INSERT INTO categories (uuid, name, type, active) VALUES (?, 'Incomes', 1, 1), (?, 'Fixed Expenses', -1, 1), (?, 'Variable Expenses', -1, 1)"
+		r.db.Exec(seedQuery, uuid.New().String(), uuid.New().String(), uuid.New().String())
 	}
 
 	// Migrate older databases by adding the new columns if they don't exist
@@ -317,4 +327,48 @@ func (r *Repository) SoftDeleteSetting(tableName string, uuid string) error {
 		return fmt.Errorf("error verifying affected rows or no item found")
 	}
 	return nil
+}
+
+// --- CATEGORIES CRUD ---
+
+// AddCategory adds a new dynamic column category
+func (r *Repository) AddCategory(name string, t int) error {
+	id := uuid.New().String()
+	query := "INSERT INTO categories (uuid, name, type, active) VALUES (?, ?, ?, 1)"
+	_, err := r.db.Exec(query, id, name, t)
+	return err
+}
+
+// GetCategories returns all active categories
+func (r *Repository) GetCategories() ([]models.Category, error) {
+	query := "SELECT uuid, name, type, active FROM categories WHERE active = 1 ORDER BY ROWID ASC"
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var categories []models.Category
+	for rows.Next() {
+		var c models.Category
+		if err := rows.Scan(&c.UUID, &c.Name, &c.Type, &c.Active); err != nil {
+			return nil, err
+		}
+		categories = append(categories, c)
+	}
+	return categories, nil
+}
+
+// UpdateCategory updates category
+func (r *Repository) UpdateCategory(uuid string, name string, t int) error {
+	query := "UPDATE categories SET name = ?, type = ? WHERE uuid = ?"
+	_, err := r.db.Exec(query, name, t, uuid)
+	return err
+}
+
+// SoftDeleteCategory
+func (r *Repository) SoftDeleteCategory(uuid string) error {
+	query := "UPDATE categories SET active = 0 WHERE uuid = ?"
+	_, err := r.db.Exec(query, uuid)
+	return err
 }

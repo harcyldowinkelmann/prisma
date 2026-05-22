@@ -121,3 +121,21 @@ func (a *App) GetTransactionByID(uuid string) (models.Transaction, error) {
 func (a *App) GetTransactions(filters models.TransactionFilters) ([]models.Transaction, error) {
 	return a.db.GetTransactions(filters)
 }
+
+// --- CATEGORIES BRIDGE ---
+
+func (a *App) AddCategory(name string, t int) error {
+	return a.db.AddCategory(name, t)
+}
+
+func (a *App) GetCategories() ([]models.Category, error) {
+	return a.db.GetCategories()
+}
+
+func (a *App) UpdateCategory(uuid string, name string, t int) error {
+	return a.db.UpdateCategory(uuid, name, t)
+}
+
+func (a *App) SoftDeleteCategory(uuid string) error {
+	return a.db.SoftDeleteCategory(uuid)
+}

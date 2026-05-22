@@ -18,21 +18,35 @@
         <v-window-item value="dashboard">
           
           <v-container fluid class="pa-4">
-              <!-- This v-row holds the 3 columns -->
-              <v-row class="ma-0">
-          <!-- TAB 1: DASHBOARD / COLUMNS -->
-          <v-col cols="12" md="4" class="pa-2">
-            <Body title="Incomes" :items="incomes" @request-add="openModal" @request-edit="openEditModal" @request-inactivate="inactivateTransaction" />
-          </v-col>
+            <!-- Header for Dashboard with Add Column Button -->
+            <div class="d-flex justify-end mb-4">
+              <v-btn color="primary" prepend-icon="mdi-plus" @click="$refs.categoryModalRef.open()">
+                Add Column
+              </v-btn>
+            </div>
 
-          <v-col cols="12" md="4" class="pa-2">
-            <Body title="Fixed Expenses" :items="fixedExpenses" @request-add="openModal" @request-edit="openEditModal" @request-inactivate="inactivateTransaction" />
-          </v-col>
-
-          <v-col cols="12" md="4" class="pa-2">
-            <Body title="Variable Expenses" :items="variableExpenses" @request-add="openModal" @request-edit="openEditModal" @request-inactivate="inactivateTransaction" />
-          </v-col>
-        </v-row>
+            <!-- Horizontal Scroll Container -->
+            <div 
+              class="d-flex overflow-x-auto flex-nowrap" 
+              style="gap: 16px; padding-bottom: 16px;" 
+              @wheel="handleScroll"
+              ref="scrollContainer"
+            >
+              <div 
+                v-for="cat in categories" 
+                :key="cat.uuid" 
+                style="min-width: 400px; max-width: 400px;"
+                @wheel.stop
+              >
+                <Body 
+                  :title="cat.name" 
+                  :items="transactionsByCategory[cat.name] || []" 
+                  @request-add="openModal" 
+                  @request-edit="openEditModal" 
+                  @request-inactivate="inactivateTransaction" 
+                />
+              </div>
+            </div>
           </v-container>
         </v-window-item>
 
@@ -61,6 +75,8 @@
         :category="selectedCategory"
         @saved="onTransactionSaved"
       ></TransactionModal>
+
+      <CategoryModal ref="categoryModalRef" @saved="loadAllData" />
     </v-main>
   </v-app>
 </template>
@@ -69,17 +85,26 @@
 import Metrics from './components/Metrics.vue'
 import Body from './components/Body.vue';
 import TransactionModal from './components/TransactionModal.vue';
+import CategoryModal from './components/CategoryModal.vue';
 import Settings from './components/Settings.vue';
 import { ref, onMounted } from 'vue';
-import { GetTransactions, SoftDeleteTransaction } from '../wailsjs/go/main/App';
+import { GetTransactions, SoftDeleteTransaction, GetCategories } from '../wailsjs/go/main/App';
 
 const activeTab = ref('dashboard');
 const isModalOpen = ref(false);
 const selectedCategory = ref('');
 
-const incomes = ref([]);
-const fixedExpenses = ref([]);
-const variableExpenses = ref([]);
+const categories = ref([]);
+const transactionsByCategory = ref({});
+const scrollContainer = ref(null);
+
+// Horizontal scroll hijacking
+function handleScroll(e) {
+  if (scrollContainer.value) {
+    e.preventDefault();
+    scrollContainer.value.scrollLeft += e.deltaY;
+  }
+}
 
 function openModal(categoryTitle) {
   selectedCategory.value = categoryTitle;
@@ -105,9 +130,14 @@ async function inactivateTransaction(uuid) {
 
 async function loadAllData() {
   try {
-    incomes.value = await GetTransactions({ category: "Incomes" }) || [];
-    fixedExpenses.value = await GetTransactions({ category: "Fixed Expenses" }) || [];
-    variableExpenses.value = await GetTransactions({ category: "Variable Expenses" }) || [];
+    categories.value = await GetCategories() || [];
+    
+    // Fetch transactions for each category
+    const map = {};
+    for (const cat of categories.value) {
+      map[cat.name] = await GetTransactions({ category: cat.name }) || [];
+    }
+    transactionsByCategory.value = map;
     
     console.log("Data reloaded from SQLite successfully.");
   } catch (err) {

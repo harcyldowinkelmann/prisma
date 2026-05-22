@@ -1,5 +1,23 @@
 export namespace models {
 	
+	export class Category {
+	    uuid: string;
+	    name: string;
+	    type: number;
+	    active: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Category(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uuid = source["uuid"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.active = source["active"];
+	    }
+	}
 	export class SettingItem {
 	    uuid: string;
 	    name: string;
