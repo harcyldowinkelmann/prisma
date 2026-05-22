@@ -22,3 +22,10 @@ type TransactionFilters struct {
 	Date        *string  `json:"date"`
 	Category    *string  `json:"category"`
 }
+
+// SettingItem is a generic model for settings like subcategories, payment methods, and tags.
+type SettingItem struct {
+	UUID   string `json:"uuid"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+}

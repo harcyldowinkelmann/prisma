@@ -54,7 +54,7 @@
                             <v-col cols="6">
                                 <v-tooltip text="A specific classification within this column (e.g., 'Food', 'Transport')" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-text-field v-bind="props" v-model="form.subcategory" label="Subcategory" variant="outlined"></v-text-field>
+                                        <v-select v-bind="props" v-model="form.subcategory" :items="availableSubcategories" label="Subcategory" variant="outlined"></v-select>
                                     </template>
                                 </v-tooltip>
                             </v-col>
@@ -62,7 +62,7 @@
                             <v-col cols="6">
                                 <v-tooltip text="Where did the money come from? (e.g., 'Credit Card', 'Cash', 'Bank Transfer')" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-text-field v-bind="props" v-model="form.paymentMethod" label="Payment Method" variant="outlined"></v-text-field>
+                                        <v-select v-bind="props" v-model="form.paymentMethod" :items="availablePaymentMethods" label="Payment Method" variant="outlined"></v-select>
                                     </template>
                                 </v-tooltip>
                             </v-col>
@@ -76,9 +76,9 @@
                             </v-col>
 
                             <v-col cols="6">
-                                <v-tooltip text="Add flexible tags separated by commas (e.g., '#trip, #fun')" location="top">
+                                <v-tooltip text="Add flexible tags (e.g., '#trip, #fun')" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-text-field v-bind="props" v-model="form.tags" label="Tags" variant="outlined"></v-text-field>
+                                        <v-combobox v-bind="props" v-model="form.tags" :items="availableTags" label="Tags" multiple chips variant="outlined"></v-combobox>
                                     </template>
                                 </v-tooltip>
                             </v-col>
@@ -117,8 +117,8 @@
 </template>
 
 <script setup>
-    import { ref, reactive } from 'vue';
-    import { SaveTransaction } from '../../wailsjs/go/main/App';
+    import { ref, reactive, onMounted, watch } from 'vue';
+    import { SaveTransaction, GetSettings } from '../../wailsjs/go/main/App';
 
     const snackbar = reactive({
         show: false,
@@ -135,6 +135,28 @@
     // Emits: To close the modal or notify that it saved
     const emit = defineEmits(['update:modelValue', 'saved']);
 
+    const availableSubcategories = ref([]);
+    const availablePaymentMethods = ref([]);
+    const availableTags = ref([]);
+
+    async function loadSettings() {
+        try {
+            availableSubcategories.value = (await GetSettings('subcategories'))?.map(i => i.name) || [];
+            availablePaymentMethods.value = (await GetSettings('payment_methods'))?.map(i => i.name) || [];
+            availableTags.value = (await GetSettings('tags'))?.map(i => i.name) || [];
+        } catch (err) {
+            console.error("Error loading settings in modal", err);
+        }
+    }
+
+    onMounted(() => {
+        loadSettings();
+    });
+
+    watch(() => props.modelValue, (newVal) => {
+        if (newVal) loadSettings();
+    });
+
     // Local form state
     const loading = ref(false);
     const form = reactive({
@@ -144,7 +166,7 @@
         subcategory: '',
         paymentMethod: '',
         installments: '',
-        tags: '',
+        tags: [],
         isPaid: true
     });
 
@@ -156,7 +178,7 @@
         form.subcategory = '';
         form.paymentMethod = '';
         form.installments = '';
-        form.tags = '';
+        form.tags = [];
         form.isPaid = true;
     }
 
@@ -166,9 +188,10 @@
         loading.value = true;
 
         const amountFloat = parseFloat(form.amount);
+        const tagsString = form.tags.join(', ');
 
         // Call GO Backend
-        SaveTransaction(form.description, amountFloat, form.date, props.category, form.subcategory, form.paymentMethod, form.installments, form.tags, form.isPaid)
+        SaveTransaction(form.description, amountFloat, form.date, props.category, form.subcategory, form.paymentMethod, form.installments, tagsString, form.isPaid)
             .then((msg) => {
                 console.log(msg);
                 emit('saved'); // Notify App.vue that it saved

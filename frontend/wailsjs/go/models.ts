@@ -1,5 +1,21 @@
 export namespace models {
 	
+	export class SettingItem {
+	    uuid: string;
+	    name: string;
+	    active: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SettingItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uuid = source["uuid"];
+	        this.name = source["name"];
+	        this.active = source["active"];
+	    }
+	}
 	export class Transaction {
 	    id: number[];
 	    description: string;

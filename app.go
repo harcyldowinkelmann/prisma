@@ -70,21 +70,45 @@ func (a *App) SaveTransaction(description string, amount float64, date string, c
 	return "Transaction saved successfully!", nil
 }
 
-// Bridge function the Vue frontend will call to perform Soft Delete
-// Receives UUID (as string) and passes it to the repository
 func (a *App) SoftDeleteTransaction(uuid string) (string, error) {
 	if uuid == "" {
 		return "", fmt.Errorf("provided UUID is empty")
 	}
 
-	// Call the "backend" layer (Repository)
 	err := a.db.SoftDeleteTransaction(uuid)
 	if err != nil {
 		return "", err
 	}
 
-	// Return a success string and 'nil' for error
 	return "Transaction archived successfully!", nil
+}
+
+// --- SETTINGS CRUD BRIDGE ---
+
+func (a *App) GetSettings(tableName string) ([]models.SettingItem, error) {
+	return a.db.GetSettings(tableName)
+}
+
+func (a *App) AddSetting(tableName string, name string) error {
+	newUUID := uuid.New().String()
+	item := models.SettingItem{
+		UUID:   newUUID,
+		Name:   name,
+		Active: true,
+	}
+	return a.db.SaveSetting(tableName, item)
+}
+
+func (a *App) UpdateSetting(tableName string, uuid string, newName string) error {
+	item := models.SettingItem{
+		UUID: uuid,
+		Name: newName,
+	}
+	return a.db.UpdateSetting(tableName, item)
+}
+
+func (a *App) InactivateSetting(tableName string, uuid string) error {
+	return a.db.SoftDeleteSetting(tableName, uuid)
 }
 
 // Fetches an active Transaction by its UUID

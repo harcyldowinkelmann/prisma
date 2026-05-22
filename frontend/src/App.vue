@@ -9,6 +9,7 @@
         <v-tab value="dashboard">Dashboard</v-tab>
         <v-tab value="metrics">Metrics & Reports</v-tab>
         <v-tab value="transactions">All Transactions</v-tab>
+        <v-tab value="settings">Settings</v-tab>
       </v-tabs>
 
       <!-- CONTEÚDO DINÂMICO (Muda conforme o menu) -->
@@ -18,23 +19,20 @@
           
           <v-container fluid class="pa-4">
               <!-- This v-row holds the 3 columns -->
-              <v-row dense>
-              
-                <!-- Incomes Column -->
-                <v-col cols="12" md="4">
-                    <Body title="Incomes" :items="incomes" @request-add="openModal" />
-                </v-col>
+              <v-row class="ma-0">
+          <!-- TAB 1: DASHBOARD / COLUMNS -->
+          <v-col cols="12" md="4" class="pa-2">
+            <Body title="Incomes" :items="incomes" @request-add="openModal" @request-edit="openEditModal" @request-inactivate="inactivateTransaction" />
+          </v-col>
 
-                <!-- COLUMN 2: FIXED EXPENSES -->
-                <v-col cols="12" md="4">
-                    <Body title="Fixed Expenses" :items="fixedExpenses" @request-add="openModal" />
-                </v-col>
+          <v-col cols="12" md="4" class="pa-2">
+            <Body title="Fixed Expenses" :items="fixedExpenses" @request-add="openModal" @request-edit="openEditModal" @request-inactivate="inactivateTransaction" />
+          </v-col>
 
-                <!-- COLUMN 3: VARIABLE EXPENSES -->
-                <v-col cols="12" md="4">
-                    <Body title="Variable Expenses" :items="variableExpenses" @request-add="openModal" />
-                </v-col>
-              </v-row>
+          <v-col cols="12" md="4" class="pa-2">
+            <Body title="Variable Expenses" :items="variableExpenses" @request-add="openModal" @request-edit="openEditModal" @request-inactivate="inactivateTransaction" />
+          </v-col>
+        </v-row>
           </v-container>
         </v-window-item>
 
@@ -51,6 +49,11 @@
             <h2 class="text-disabled">Full Transactions List Coming Soon...</h2>
           </v-container>
         </v-window-item>
+
+        <!-- TAB 4: SETTINGS -->
+        <v-window-item value="settings">
+          <Settings />
+        </v-window-item>
       </v-window>
 
       <TransactionModal
@@ -66,8 +69,9 @@
 import Metrics from './components/Metrics.vue'
 import Body from './components/Body.vue';
 import TransactionModal from './components/TransactionModal.vue';
+import Settings from './components/Settings.vue';
 import { ref, onMounted } from 'vue';
-import { GetTransactions } from '../wailsjs/go/main/App';
+import { GetTransactions, SoftDeleteTransaction } from '../wailsjs/go/main/App';
 
 const activeTab = ref('dashboard');
 const isModalOpen = ref(false);
@@ -82,17 +86,32 @@ function openModal(categoryTitle) {
   isModalOpen.value = true;
 }
 
+function openEditModal(item) {
+  // TODO: Create or modify TransactionModal to accept an item to edit
+  alert("Edição de transação será implementada na próxima fase!");
+}
+
+async function inactivateTransaction(uuid) {
+  if (!confirm("Are you sure you want to archive this transaction? It will be removed from the totals.")) return;
+  
+  try {
+    await SoftDeleteTransaction(uuid);
+    await loadAllData();
+  } catch (err) {
+    console.error("Failed to archive transaction", err);
+    alert("Error archiving transaction: " + err);
+  }
+}
+
 async function loadAllData() {
   try {
-    incomes.value = await GetTransactions({ category: "Incomes" });
-
-    fixedExpenses.value = await GetTransactions({ category: "Fixed Expenses" });
-
-    variableExpenses.value = await GetTransactions({ category: "Variable Expenses" });
+    incomes.value = await GetTransactions({ category: "Incomes" }) || [];
+    fixedExpenses.value = await GetTransactions({ category: "Fixed Expenses" }) || [];
+    variableExpenses.value = await GetTransactions({ category: "Variable Expenses" }) || [];
     
     console.log("Data reloaded from SQLite successfully.");
   } catch (err) {
-    console.error("Error loading data:", err);
+    console.error("Failed to load transactions", err);
   }
 }
 

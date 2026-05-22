@@ -79,6 +79,18 @@ func (r *Repository) initTables() error {
 		return err
 	}
 
+	// Create setting tables
+	settingsQueries := []string{
+		`CREATE TABLE IF NOT EXISTS subcategories (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
+		`CREATE TABLE IF NOT EXISTS payment_methods (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
+		`CREATE TABLE IF NOT EXISTS tags (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
+	}
+	for _, q := range settingsQueries {
+		if _, err := r.db.Exec(q); err != nil {
+			return err
+		}
+	}
+
 	// Migrate older databases by adding the new columns if they don't exist
 	alterQueries := []string{
 		"ALTER TABLE transactions ADD COLUMN subcategory TEXT DEFAULT '';",
@@ -139,7 +151,7 @@ func (r *Repository) SoftDeleteTransaction(uuid string) error {
 // Fetches active transactions based on optional filters
 func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]models.Transaction, error) {
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString("SELECT * FROM transactions WHERE active = 1")
+	queryBuilder.WriteString("SELECT uuid, description, amount, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE active = 1")
 
 	// args are the values for the '?' placeholders
 	var args []interface{}
@@ -181,7 +193,7 @@ func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]model
 
 // Fetches an active Transaction by its UUID
 func (r *Repository) GetTransactionByID(uuid string) (models.Transaction, error) {
-	query := "SELECT * FROM transactions WHERE uuid = ? AND active = 1;"
+	query := "SELECT uuid, description, amount, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE uuid = ? AND active = 1;"
 
 	var t models.Transaction
 
@@ -215,4 +227,94 @@ func (r *Repository) scanTransactions(rows *sql.Rows) ([]models.Transaction, err
 	}
 
 	return transactions, nil
+}
+
+// --- SETTINGS CRUD ---
+
+func (r *Repository) GetSettings(tableName string) ([]models.SettingItem, error) {
+	allowedTables := map[string]bool{"subcategories": true, "payment_methods": true, "tags": true}
+	if !allowedTables[tableName] {
+		return nil, fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	query := fmt.Sprintf("SELECT uuid, name, active FROM %s WHERE active = 1 ORDER BY name ASC;", tableName)
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching %s: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	var items []models.SettingItem
+	for rows.Next() {
+		var item models.SettingItem
+		var activeInt int
+		if err := rows.Scan(&item.UUID, &item.Name, &activeInt); err != nil {
+			return nil, fmt.Errorf("error scanning row in %s: %w", tableName, err)
+		}
+		item.Active = activeInt == 1
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error in result rows for %s: %w", tableName, err)
+	}
+
+	return items, nil
+}
+
+func (r *Repository) SaveSetting(tableName string, item models.SettingItem) error {
+	allowedTables := map[string]bool{"subcategories": true, "payment_methods": true, "tags": true}
+	if !allowedTables[tableName] {
+		return fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	activeInt := 0
+	if item.Active {
+		activeInt = 1
+	}
+
+	query := fmt.Sprintf("INSERT INTO %s (uuid, name, active) VALUES (?, ?, ?);", tableName)
+	_, err := r.db.Exec(query, item.UUID, item.Name, activeInt)
+	if err != nil {
+		return fmt.Errorf("error inserting into %s: %w", tableName, err)
+	}
+	return nil
+}
+
+func (r *Repository) UpdateSetting(tableName string, item models.SettingItem) error {
+	allowedTables := map[string]bool{"subcategories": true, "payment_methods": true, "tags": true}
+	if !allowedTables[tableName] {
+		return fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	query := fmt.Sprintf("UPDATE %s SET name = ? WHERE uuid = ?;", tableName)
+	res, err := r.db.Exec(query, item.Name, item.UUID)
+	if err != nil {
+		return fmt.Errorf("error updating %s: %w", tableName, err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil || rowsAffected == 0 {
+		return fmt.Errorf("error verifying affected rows or no item found")
+	}
+	return nil
+}
+
+func (r *Repository) SoftDeleteSetting(tableName string, uuid string) error {
+	allowedTables := map[string]bool{"subcategories": true, "payment_methods": true, "tags": true}
+	if !allowedTables[tableName] {
+		return fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	query := fmt.Sprintf("UPDATE %s SET active = 0 WHERE uuid = ?;", tableName)
+	res, err := r.db.Exec(query, uuid)
+	if err != nil {
+		return fmt.Errorf("error executing soft delete on %s: %w", tableName, err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil || rowsAffected == 0 {
+		return fmt.Errorf("error verifying affected rows or no item found")
+	}
+	return nil
 }
