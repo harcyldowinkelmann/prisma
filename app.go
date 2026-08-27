@@ -6,6 +6,7 @@ import (
 	"os"
 	"prisma/internal/database"
 	"prisma/internal/models"
+	"prisma/internal/notifier"
 
 	"github.com/google/uuid"
 )
@@ -37,6 +38,9 @@ func (a *App) startup(ctx context.Context) {
 
 	// Injects the repository into the App struct
 	a.db = repo
+	
+	// Start the background notification service
+	notifier.StartBackgroundNotifier(repo)
 }
 
 // SaveTransaction is the bridge function the Vue frontend will call.

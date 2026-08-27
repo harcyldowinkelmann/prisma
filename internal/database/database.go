@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"prisma/internal/models"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -14,6 +15,22 @@ import (
 
 type Repository struct {
 	db *sql.DB
+}
+
+const notificationsEnabledSettingKey = "notifications_enabled"
+
+type columnMigration struct {
+	name       string
+	definition string
+}
+
+var transactionColumnMigrations = []columnMigration{
+	{name: "subcategory", definition: "TEXT DEFAULT ''"},
+	{name: "payment_method", definition: "TEXT DEFAULT ''"},
+	{name: "installments", definition: "TEXT DEFAULT ''"},
+	{name: "tags", definition: "TEXT DEFAULT ''"},
+	{name: "is_paid", definition: "INTEGER NOT NULL DEFAULT 1"},
+	{name: "notified_at", definition: "TEXT DEFAULT ''"},
 }
 
 // Função privata que encontra o local seguro para salvar o 'prisma.db'
@@ -71,6 +88,7 @@ func (r *Repository) initTables() error {
 			installments TEXT DEFAULT '',
 			tags TEXT DEFAULT '',
 			is_paid INTEGER NOT NULL DEFAULT 1,
+			notified_at TEXT DEFAULT '',
 			active INTEGER NOT NULL DEFAULT 1
 		);
 	`
@@ -86,6 +104,7 @@ func (r *Repository) initTables() error {
 		`CREATE TABLE IF NOT EXISTS payment_methods (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
 		`CREATE TABLE IF NOT EXISTS tags (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
 		`CREATE TABLE IF NOT EXISTS categories (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, type INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
+		`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
 	}
 	for _, q := range settingsQueries {
 		if _, err := r.db.Exec(q); err != nil {
@@ -93,24 +112,74 @@ func (r *Repository) initTables() error {
 		}
 	}
 
-	// Seed default categories if none exist
-	var count int
-	r.db.QueryRow("SELECT COUNT(*) FROM categories").Scan(&count)
-	if count == 0 {
-		seedQuery := "INSERT INTO categories (uuid, name, type, active) VALUES (?, 'Incomes', 1, 1), (?, 'Fixed Expenses', -1, 1), (?, 'Variable Expenses', -1, 1)"
-		r.db.Exec(seedQuery, uuid.New().String(), uuid.New().String(), uuid.New().String())
+	if err := r.ensureTransactionColumns(); err != nil {
+		return err
 	}
 
-	// Migrate older databases by adding the new columns if they don't exist
-	alterQueries := []string{
-		"ALTER TABLE transactions ADD COLUMN subcategory TEXT DEFAULT '';",
-		"ALTER TABLE transactions ADD COLUMN payment_method TEXT DEFAULT '';",
-		"ALTER TABLE transactions ADD COLUMN installments TEXT DEFAULT '';",
-		"ALTER TABLE transactions ADD COLUMN tags TEXT DEFAULT '';",
-		"ALTER TABLE transactions ADD COLUMN is_paid INTEGER NOT NULL DEFAULT 1;",
+	// Seed default categories if none exist
+	var count int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM categories").Scan(&count); err != nil {
+		return fmt.Errorf("error counting categories: %w", err)
 	}
-	for _, q := range alterQueries {
-		r.db.Exec(q) // Ignored if columns already exist
+	if count == 0 {
+		seedQuery := "INSERT INTO categories (uuid, name, type, active) VALUES (?, 'Incomes', 1, 1), (?, 'Fixed Expenses', -1, 1), (?, 'Variable Expenses', -1, 1)"
+		if _, err := r.db.Exec(seedQuery, uuid.New().String(), uuid.New().String(), uuid.New().String()); err != nil {
+			return fmt.Errorf("error seeding default categories: %w", err)
+		}
+	}
+
+	if _, err := r.db.Exec(
+		"INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING;",
+		notificationsEnabledSettingKey,
+		strconv.FormatBool(true),
+	); err != nil {
+		return fmt.Errorf("error seeding notification settings: %w", err)
+	}
+
+	return nil
+}
+
+// ensureTransactionColumns migrates older databases without relying on ignored
+// duplicate-column errors. Any unexpected migration failure is returned to the caller.
+func (r *Repository) ensureTransactionColumns() error {
+	rows, err := r.db.Query("PRAGMA table_info(transactions);")
+	if err != nil {
+		return fmt.Errorf("error reading transactions schema: %w", err)
+	}
+
+	existingColumns := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid          int
+			name         string
+			columnType   string
+			notNull      int
+			defaultValue interface{}
+			primaryKey   int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return fmt.Errorf("error scanning transactions schema: %w", err)
+		}
+		existingColumns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("error iterating transactions schema: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("error closing transactions schema query: %w", err)
+	}
+
+	for _, migration := range transactionColumnMigrations {
+		if existingColumns[migration.name] {
+			continue
+		}
+
+		query := fmt.Sprintf("ALTER TABLE transactions ADD COLUMN %s %s;", migration.name, migration.definition)
+		if _, err := r.db.Exec(query); err != nil {
+			return fmt.Errorf("error adding transactions.%s: %w", migration.name, err)
+		}
 	}
 
 	return nil
@@ -165,11 +234,11 @@ func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]model
 
 	// args are the values for the '?' placeholders
 	var args []interface{}
-	
+
 	// Filter by Description (using LIKE)
 	if filters.Description != nil && *filters.Description != "" {
 		queryBuilder.WriteString(" AND description LIKE ?")
-		args = append(args, "%" + *filters.Description + "%")
+		args = append(args, "%"+*filters.Description+"%")
 	}
 
 	// Filter by Amount (exact)
@@ -237,6 +306,84 @@ func (r *Repository) scanTransactions(rows *sql.Rows) ([]models.Transaction, err
 	}
 
 	return transactions, nil
+}
+
+// --- NOTIFICATIONS ---
+
+// GetPendingNotifications returns unpaid transactions due today (or overdue) that haven't been notified today.
+func (r *Repository) GetPendingNotifications(todayDate string) ([]models.Transaction, error) {
+	query := `
+		SELECT t.uuid, t.description, t.amount, t.date, t.category, t.subcategory,
+		       t.payment_method, t.installments, t.tags, t.is_paid, t.active
+		FROM transactions t
+		INNER JOIN categories c ON c.name = t.category
+		WHERE t.active = 1
+		  AND t.is_paid = 0
+		  AND t.date <= ?
+		  AND COALESCE(t.notified_at, '') != ?
+		  AND c.active = 1
+		  AND c.type = -1
+	`
+
+	rows, err := r.db.Query(query, todayDate, todayDate)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching pending notifications: %w", err)
+	}
+	defer rows.Close()
+
+	return r.scanTransactions(rows)
+}
+
+// MarkAsNotified updates the notified_at field so we don't notify again on the same day.
+func (r *Repository) MarkAsNotified(uuid string, date string) error {
+	query := "UPDATE transactions SET notified_at = ? WHERE uuid = ?"
+	result, err := r.db.Exec(query, date, uuid)
+	if err != nil {
+		return fmt.Errorf("error marking transaction as notified: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error checking notified transaction: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("no transaction found with UUID: %s", uuid)
+	}
+
+	return nil
+}
+
+// GetNotificationsEnabled returns the persisted payment reminder preference.
+func (r *Repository) GetNotificationsEnabled() (bool, error) {
+	var value string
+	if err := r.db.QueryRow(
+		"SELECT value FROM app_settings WHERE key = ?;",
+		notificationsEnabledSettingKey,
+	).Scan(&value); err != nil {
+		return false, fmt.Errorf("error reading notification settings: %w", err)
+	}
+
+	enabled, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("invalid notification setting %q: %w", value, err)
+	}
+
+	return enabled, nil
+}
+
+// SetNotificationsEnabled persists whether payment reminders are enabled.
+func (r *Repository) SetNotificationsEnabled(enabled bool) error {
+	_, err := r.db.Exec(
+		`INSERT INTO app_settings (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value;`,
+		notificationsEnabledSettingKey,
+		strconv.FormatBool(enabled),
+	)
+	if err != nil {
+		return fmt.Errorf("error updating notification settings: %w", err)
+	}
+
+	return nil
 }
 
 // --- SETTINGS CRUD ---
