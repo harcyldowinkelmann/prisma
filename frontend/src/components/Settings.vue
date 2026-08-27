@@ -18,7 +18,40 @@
 
       <!-- RIGHT CONTENT -->
       <v-col cols="12" md="9">
-        <v-card variant="flat">
+        <v-card v-if="activeTab === 'notifications'" variant="flat">
+          <v-card-title>Payment Reminders</v-card-title>
+          <v-card-subtitle>
+            Choose whether Prisma should notify you about due and overdue unpaid expenses.
+          </v-card-subtitle>
+
+          <v-card-text class="pt-6">
+            <v-list lines="three" class="border rounded-lg">
+              <v-list-item
+                prepend-icon="mdi-bell-outline"
+                title="Enable payment reminders"
+                subtitle="The preference is saved locally and applies to the next notification check."
+              >
+                <template #append>
+                  <v-switch
+                    :model-value="notificationsEnabled"
+                    :loading="notificationsLoading || notificationsSaving"
+                    :disabled="notificationsLoading || notificationsSaving"
+                    color="primary"
+                    hide-details
+                    aria-label="Enable payment reminders"
+                    @update:model-value="saveNotificationsEnabled"
+                  ></v-switch>
+                </template>
+              </v-list-item>
+            </v-list>
+
+            <div class="text-caption text-medium-emphasis mt-3">
+              Current status: {{ notificationsEnabled ? 'Enabled' : 'Disabled' }}
+            </div>
+          </v-card-text>
+        </v-card>
+
+        <v-card v-else variant="flat">
           <v-card-title class="d-flex align-center pe-2">
             <v-text-field
               v-model="search"
@@ -98,23 +131,52 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-snackbar
+      v-model="feedback.show"
+      :color="feedback.color"
+      location="top right"
+      timeout="3000"
+    >
+      {{ feedback.message }}
+      <template #actions>
+        <v-btn variant="text" @click="feedback.show = false">Close</v-btn>
+      </template>
+    </v-snackbar>
   </v-container>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
-import { GetSettings, AddSetting, UpdateSetting, InactivateSetting } from '../../wailsjs/go/main/App';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
+import {
+  GetSettings,
+  AddSetting,
+  UpdateSetting,
+  InactivateSetting,
+  GetNotificationsEnabled,
+  SetNotificationsEnabled
+} from '../../wailsjs/go/main/App';
 
 const tabs = [
-  { title: 'Sub Categories', value: 'subcategories' },
+  { title: 'Subcategories', value: 'subcategories' },
   { title: 'Payment Methods', value: 'payment_methods' },
-  { title: 'Tags', value: 'tags' }
+  { title: 'Tags', value: 'tags' },
+  { title: 'Notifications', value: 'notifications' }
 ];
 
 const activeTab = ref('subcategories');
 const search = ref('');
 const items = ref([]);
 const isModalOpen = ref(false);
+const notificationsEnabled = ref(false);
+const notificationsLoading = ref(false);
+const notificationsSaving = ref(false);
+
+const feedback = reactive({
+  show: false,
+  message: '',
+  color: 'success'
+});
 
 const editingItem = ref(null);
 const form = ref({ name: '' });
@@ -125,6 +187,19 @@ const filteredItems = computed(() => {
 });
 
 async function loadData() {
+  if (activeTab.value === 'notifications') {
+    notificationsLoading.value = true;
+    try {
+      notificationsEnabled.value = await GetNotificationsEnabled();
+    } catch (err) {
+      console.error("Error loading notification settings:", err);
+      showFeedback('Could not load the notification preference.', 'error');
+    } finally {
+      notificationsLoading.value = false;
+    }
+    return;
+  }
+
   try {
     const res = await GetSettings(activeTab.value);
     items.value = res || [];
@@ -135,6 +210,7 @@ async function loadData() {
 
 watch(activeTab, () => {
   search.value = '';
+  isModalOpen.value = false;
   loadData();
 });
 
@@ -151,6 +227,31 @@ function openModal(item = null) {
     form.value.name = '';
   }
   isModalOpen.value = true;
+}
+
+function showFeedback(message, color) {
+  feedback.message = message;
+  feedback.color = color;
+  feedback.show = true;
+}
+
+async function saveNotificationsEnabled(enabled) {
+  if (notificationsSaving.value) return;
+
+  notificationsSaving.value = true;
+  try {
+    await SetNotificationsEnabled(Boolean(enabled));
+    notificationsEnabled.value = Boolean(enabled);
+    showFeedback(
+      enabled ? 'Payment reminders enabled.' : 'Payment reminders disabled.',
+      'success'
+    );
+  } catch (err) {
+    console.error("Error saving notification settings:", err);
+    showFeedback('Could not save the notification preference.', 'error');
+  } finally {
+    notificationsSaving.value = false;
+  }
 }
 
 async function saveItem() {

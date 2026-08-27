@@ -14,6 +14,10 @@ export function GetCategories() {
   return window['go']['main']['App']['GetCategories']();
 }
 
+export function GetNotificationsEnabled() {
+  return window['go']['main']['App']['GetNotificationsEnabled']();
+}
+
 export function GetSettings(arg1) {
   return window['go']['main']['App']['GetSettings'](arg1);
 }
@@ -32,6 +36,10 @@ export function InactivateSetting(arg1, arg2) {
 
 export function SaveTransaction(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
   return window['go']['main']['App']['SaveTransaction'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+}
+
+export function SetNotificationsEnabled(arg1) {
+  return window['go']['main']['App']['SetNotificationsEnabled'](arg1);
 }
 
 export function SoftDeleteCategory(arg1) {

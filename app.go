@@ -134,6 +134,16 @@ func (a *App) InactivateSetting(tableName string, uuid string) error {
 	return a.db.SoftDeleteSetting(tableName, uuid)
 }
 
+// GetNotificationsEnabled returns whether payment reminders are enabled.
+func (a *App) GetNotificationsEnabled() (bool, error) {
+	return a.db.GetNotificationsEnabled()
+}
+
+// SetNotificationsEnabled persists the payment reminder preference.
+func (a *App) SetNotificationsEnabled(enabled bool) error {
+	return a.db.SetNotificationsEnabled(enabled)
+}
+
 // Fetches an active Transaction by its UUID
 func (a *App) GetTransactionByID(uuid string) (models.Transaction, error) {
 	return a.db.GetTransactionByID(uuid)

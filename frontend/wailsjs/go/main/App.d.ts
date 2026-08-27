@@ -8,6 +8,8 @@ export function AddSetting(arg1:string,arg2:string):Promise<void>;
 
 export function GetCategories():Promise<Array<models.Category>>;
 
+export function GetNotificationsEnabled():Promise<boolean>;
+
 export function GetSettings(arg1:string):Promise<Array<models.SettingItem>>;
 
 export function GetTransactionByID(arg1:string):Promise<models.Transaction>;
@@ -17,6 +19,8 @@ export function GetTransactions(arg1:models.TransactionFilters):Promise<Array<mo
 export function InactivateSetting(arg1:string,arg2:string):Promise<void>;
 
 export function SaveTransaction(arg1:string,arg2:number,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:boolean):Promise<string>;
+
+export function SetNotificationsEnabled(arg1:boolean):Promise<void>;
 
 export function SoftDeleteCategory(arg1:string):Promise<void>;
 
