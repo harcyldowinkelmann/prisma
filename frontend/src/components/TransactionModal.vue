@@ -13,7 +13,7 @@
             </template>
         </v-snackbar>
 
-        <!-- v-dialog cria a janela flutuante -->
+        <!-- v-dialog creates the modal window -->
         <v-dialog
             :model-value="modelValue"
             @update:model-value="close"

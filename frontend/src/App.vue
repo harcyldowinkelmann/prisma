@@ -1,10 +1,10 @@
 <template>
   <v-app>
     <v-main>
-      <!-- HEADER ESTÁTICO (Nunca some) -->
+      <!-- STATIC HEADER (Always visible) -->
       <Metrics />
 
-      <!-- MENU COLADO LOGO ABAIXO DO HEADER -->
+      <!-- NAVIGATION DIRECTLY BELOW THE HEADER -->
       <v-tabs v-model="activeTab" bg-color="transparent" align-tabs="center" class="mt-2 mb-4">
         <v-tab value="dashboard">Dashboard</v-tab>
         <v-tab value="metrics">Metrics & Reports</v-tab>
@@ -12,9 +12,9 @@
         <v-tab value="settings">Settings</v-tab>
       </v-tabs>
 
-      <!-- CONTEÚDO DINÂMICO (Muda conforme o menu) -->
+      <!-- DYNAMIC CONTENT (Changes with the selected tab) -->
       <v-window v-model="activeTab">
-        <!-- TAB 1: DASHBOARD (Current View - 3 Colunas) -->
+        <!-- TAB 1: DASHBOARD (Current three-column view) -->
         <v-window-item value="dashboard">
           
           <v-container fluid class="pa-4">
@@ -113,7 +113,7 @@ function openModal(categoryTitle) {
 
 function openEditModal(item) {
   // TODO: Create or modify TransactionModal to accept an item to edit
-  alert("Edição de transação será implementada na próxima fase!");
+  alert("Transaction editing will be implemented in the next phase!");
 }
 
 async function inactivateTransaction(uuid) {

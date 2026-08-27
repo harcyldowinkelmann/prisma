@@ -33,22 +33,22 @@ var transactionColumnMigrations = []columnMigration{
 	{name: "notified_at", definition: "TEXT DEFAULT ''"},
 }
 
-// Função privata que encontra o local seguro para salvar o 'prisma.db'
+// getDatabasePath returns a safe location for the Prisma database.
 func getDatabasePath() (string, error) {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("não foi possível encontrar o diretório de config: %w", err)
+		return "", fmt.Errorf("could not find the user configuration directory: %w", err)
 	}
 
-	// O caminho será .../AppData/Roaming/Prisma/
+	// On Windows, this resolves to .../AppData/Roaming/Prisma/.
 	appDataDir := filepath.Join(configDir, "Prisma")
 
-	// Garante que o diretório exista
+	// Ensure that the application data directory exists.
 	if err = os.MkdirAll(appDataDir, 0755); err != nil {
-		return "", fmt.Errorf("não foi possível criar o diretório de dados: %w", err)
+		return "", fmt.Errorf("could not create the application data directory: %w", err)
 	}
 
-	// Retorna o caminho completo para o arquivo
+	// Return the complete path to the database file.
 	return filepath.Join(appDataDir, "prisma.db"), nil
 }
 
@@ -58,23 +58,24 @@ func NewRepository() (*Repository, error) {
 		return nil, err
 	}
 
-	// sql.Open vai criar o 'prisma.db' se não existir
+	// sql.Open creates prisma.db when it does not exist.
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao abrir o banco: %w", err)
+		return nil, fmt.Errorf("could not open the database: %w", err)
 	}
 
-	// Cria um repositório temporário para chamar a migração
+	// Create the repository before applying schema migrations.
 	repo := &Repository{db: db}
 	if err = repo.initTables(); err != nil {
-		return nil, fmt.Errorf("erro ao inicializar tabelas: %w", err)
+		db.Close()
+		return nil, fmt.Errorf("could not initialize database tables: %w", err)
 	}
 
-	fmt.Println("Banco de dados iniciado com sucesso em: ", dbPath)
+	fmt.Println("Database initialized successfully at:", dbPath)
 	return repo, nil
 }
 
-// initTables executa a migração (schema) do banco
+// initTables creates and migrates the database schema.
 func (r *Repository) initTables() error {
 	query := `
 		CREATE TABLE IF NOT EXISTS transactions (

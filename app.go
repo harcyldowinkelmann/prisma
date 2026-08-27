@@ -7,14 +7,17 @@ import (
 	"prisma/internal/database"
 	"prisma/internal/models"
 	"prisma/internal/notifier"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 // App struct
 type App struct {
-	ctx context.Context
-	db	*database.Repository
+	ctx            context.Context
+	db             *database.Repository
+	notifierCancel context.CancelFunc
+	notifierDone   <-chan struct{}
 }
 
 // NewApp creates a new App application struct
@@ -38,9 +41,25 @@ func (a *App) startup(ctx context.Context) {
 
 	// Injects the repository into the App struct
 	a.db = repo
-	
+
 	// Start the background notification service
-	notifier.StartBackgroundNotifier(repo)
+	notifierCtx, cancelNotifier := context.WithCancel(ctx)
+	a.notifierCancel = cancelNotifier
+	a.notifierDone = notifier.StartBackgroundNotifier(notifierCtx, repo)
+}
+
+// shutdown stops background services before the application exits.
+func (a *App) shutdown(_ context.Context) {
+	if a.notifierCancel != nil {
+		a.notifierCancel()
+	}
+	if a.notifierDone != nil {
+		select {
+		case <-a.notifierDone:
+		case <-time.After(2 * time.Second):
+			fmt.Println("Timed out while stopping the background notification service.")
+		}
+	}
 }
 
 // SaveTransaction is the bridge function the Vue frontend will call.
