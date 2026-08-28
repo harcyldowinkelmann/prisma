@@ -95,7 +95,7 @@ func (r *Repository) initTables() error {
 		CREATE TABLE IF NOT EXISTS transactions (
 			uuid TEXT PRIMARY KEY,
 			description TEXT NOT NULL,
-			amount REAL NOT NULL,
+			amount_cents INTEGER NOT NULL,
 			date TEXT NOT NULL,
 			category TEXT NOT NULL,
 			subcategory TEXT DEFAULT '',
@@ -128,6 +128,9 @@ func (r *Repository) initTables() error {
 	}
 
 	if err := r.ensureTransactionColumns(); err != nil {
+		return err
+	}
+	if err := r.migrateTransactionAmounts(); err != nil {
 		return err
 	}
 
@@ -180,9 +183,9 @@ func (r *Repository) GetFinancialMetrics(startDate string, endDate string) (mode
 	rows, err := r.db.Query(`
 		SELECT c.name,
 		       c.type,
-		       COALESCE(SUM(t.amount), 0),
-		       COALESCE(SUM(CASE WHEN t.is_paid = 1 THEN t.amount ELSE 0 END), 0),
-		       COALESCE(SUM(CASE WHEN t.is_paid = 0 THEN t.amount ELSE 0 END), 0)
+		       COALESCE(SUM(t.amount_cents), 0),
+		       COALESCE(SUM(CASE WHEN t.is_paid = 1 THEN t.amount_cents ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN t.is_paid = 0 THEN t.amount_cents ELSE 0 END), 0)
 		FROM categories c
 		LEFT JOIN transactions t
 		       ON t.category = c.name
@@ -197,16 +200,16 @@ func (r *Repository) GetFinancialMetrics(startDate string, endDate string) (mode
 	}
 	defer rows.Close()
 
-	var expectedIncome float64
-	var expectedExpenses float64
+	var expectedIncomeCents int64
+	var expectedExpensesCents int64
 	for rows.Next() {
 		var category models.CategoryMetric
 		if err := rows.Scan(
 			&category.Name,
 			&category.Type,
-			&category.TotalAmount,
-			&category.PaidAmount,
-			&category.PendingAmount,
+			&category.TotalAmountCents,
+			&category.PaidAmountCents,
+			&category.PendingAmountCents,
 		); err != nil {
 			return metrics, fmt.Errorf("error scanning financial metrics: %w", err)
 		}
@@ -214,23 +217,23 @@ func (r *Repository) GetFinancialMetrics(startDate string, endDate string) (mode
 		metrics.Categories = append(metrics.Categories, category)
 		switch category.Type {
 		case 1:
-			expectedIncome += category.TotalAmount
-			metrics.ReceivedIncome += category.PaidAmount
+			expectedIncomeCents += category.TotalAmountCents
+			metrics.ReceivedIncomeCents += category.PaidAmountCents
 		case -1:
-			expectedExpenses += category.TotalAmount
-			metrics.PaidExpenses += category.PaidAmount
-			metrics.PendingExpenses += category.PendingAmount
+			expectedExpensesCents += category.TotalAmountCents
+			metrics.PaidExpensesCents += category.PaidAmountCents
+			metrics.PendingExpensesCents += category.PendingAmountCents
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return metrics, fmt.Errorf("error iterating financial metrics: %w", err)
 	}
 
-	metrics.ActualBalance = metrics.ReceivedIncome - metrics.PaidExpenses
-	metrics.ExpectedBalance = expectedIncome - expectedExpenses
-	metrics.HasReceivedIncome = metrics.ReceivedIncome > 0
+	metrics.ActualBalanceCents = metrics.ReceivedIncomeCents - metrics.PaidExpensesCents
+	metrics.ExpectedBalanceCents = expectedIncomeCents - expectedExpensesCents
+	metrics.HasReceivedIncome = metrics.ReceivedIncomeCents > 0
 	if metrics.HasReceivedIncome {
-		metrics.IncomeSpentPercentage = metrics.PaidExpenses / metrics.ReceivedIncome * 100
+		metrics.IncomeSpentPercentage = float64(metrics.PaidExpensesCents) / float64(metrics.ReceivedIncomeCents) * 100
 	}
 
 	return metrics, nil
@@ -282,14 +285,140 @@ func (r *Repository) ensureTransactionColumns() error {
 	return nil
 }
 
+// migrateTransactionAmounts replaces the legacy floating-point amount column
+// with integer cents while preserving every transaction and its metadata.
+func (r *Repository) migrateTransactionAmounts() error {
+	columns, err := r.getTransactionColumns()
+	if err != nil {
+		return err
+	}
+	if columns["amount_cents"] && !columns["amount"] {
+		return nil
+	}
+	if !columns["amount"] {
+		return fmt.Errorf("transactions table has neither amount nor amount_cents")
+	}
+
+	amountExpression := "CAST(ROUND(amount * 100.0) AS INTEGER)"
+	if columns["amount_cents"] {
+		amountExpression = "COALESCE(amount_cents, CAST(ROUND(amount * 100.0) AS INTEGER))"
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("error starting amount migration: %w", err)
+	}
+	defer tx.Rollback()
+
+	var originalCount int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM transactions;").Scan(&originalCount); err != nil {
+		return fmt.Errorf("error counting transactions before amount migration: %w", err)
+	}
+	if _, err := tx.Exec("DROP TABLE IF EXISTS transactions_amount_migration;"); err != nil {
+		return fmt.Errorf("error clearing stale amount migration table: %w", err)
+	}
+	if _, err := tx.Exec(`
+		CREATE TABLE transactions_amount_migration (
+			uuid TEXT PRIMARY KEY,
+			description TEXT NOT NULL,
+			amount_cents INTEGER NOT NULL,
+			date TEXT NOT NULL,
+			category TEXT NOT NULL,
+			subcategory TEXT DEFAULT '',
+			payment_method TEXT DEFAULT '',
+			installments TEXT DEFAULT '',
+			tags TEXT DEFAULT '',
+			is_paid INTEGER NOT NULL DEFAULT 1,
+			notified_at TEXT DEFAULT '',
+			active INTEGER NOT NULL DEFAULT 1
+		);
+	`); err != nil {
+		return fmt.Errorf("error creating amount migration table: %w", err)
+	}
+
+	copyQuery := fmt.Sprintf(`
+		INSERT INTO transactions_amount_migration (
+			uuid, description, amount_cents, date, category, subcategory,
+			payment_method, installments, tags, is_paid, notified_at, active
+		)
+		SELECT uuid, description, %s, date, category, subcategory,
+		       payment_method, installments, tags, is_paid, notified_at, active
+		FROM transactions;
+	`, amountExpression)
+	if _, err := tx.Exec(copyQuery); err != nil {
+		return fmt.Errorf("error copying transactions during amount migration: %w", err)
+	}
+
+	var migratedCount int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM transactions_amount_migration;").Scan(&migratedCount); err != nil {
+		return fmt.Errorf("error counting migrated transactions: %w", err)
+	}
+	if migratedCount != originalCount {
+		return fmt.Errorf("amount migration count mismatch: expected %d transactions, copied %d", originalCount, migratedCount)
+	}
+	var unsafeAmountCount int
+	if err := tx.QueryRow(
+		"SELECT COUNT(*) FROM transactions_amount_migration WHERE amount_cents > ? OR amount_cents < ?;",
+		models.MaxSafeAmountCents,
+		-models.MaxSafeAmountCents,
+	).Scan(&unsafeAmountCount); err != nil {
+		return fmt.Errorf("error validating migrated transaction amounts: %w", err)
+	}
+	if unsafeAmountCount != 0 {
+		return fmt.Errorf("amount migration found %d values outside the exact supported range", unsafeAmountCount)
+	}
+
+	if _, err := tx.Exec("DROP TABLE transactions;"); err != nil {
+		return fmt.Errorf("error replacing legacy transactions table: %w", err)
+	}
+	if _, err := tx.Exec("ALTER TABLE transactions_amount_migration RENAME TO transactions;"); err != nil {
+		return fmt.Errorf("error finalizing amount migration: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("error committing amount migration: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) getTransactionColumns() (map[string]bool, error) {
+	rows, err := r.db.Query("PRAGMA table_info(transactions);")
+	if err != nil {
+		return nil, fmt.Errorf("error reading transactions schema: %w", err)
+	}
+	defer rows.Close()
+
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid          int
+			name         string
+			columnType   string
+			notNull      int
+			defaultValue interface{}
+			primaryKey   int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return nil, fmt.Errorf("error scanning transactions schema: %w", err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating transactions schema: %w", err)
+	}
+	return columns, nil
+}
+
 // Receives transaction data and saves it to the database
 func (r *Repository) SaveTransaction(t models.Transaction) error {
+	if err := validateAmountCents(t.AmountCents); err != nil {
+		return err
+	}
 	query := `
-		INSERT INTO transactions (uuid, description, amount, date, category, subcategory, payment_method, installments, tags, is_paid, active)
+		INSERT INTO transactions (uuid, description, amount_cents, date, category, subcategory, payment_method, installments, tags, is_paid, active)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.Exec(query, t.UUID, t.Description, t.Amount, t.Date, t.Category, t.Subcategory, t.PaymentMethod, t.Installments, t.Tags, t.IsPaid, t.Active)
+	_, err := r.db.Exec(query, t.UUID, t.Description, t.AmountCents, t.Date, t.Category, t.Subcategory, t.PaymentMethod, t.Installments, t.Tags, t.IsPaid, t.Active)
 	if err != nil {
 		return fmt.Errorf("error inserting transaction: %w", err)
 	}
@@ -299,10 +428,13 @@ func (r *Repository) SaveTransaction(t models.Transaction) error {
 
 // UpdateTransaction updates an active transaction and resets its reminder state.
 func (r *Repository) UpdateTransaction(t models.Transaction) error {
+	if err := validateAmountCents(t.AmountCents); err != nil {
+		return err
+	}
 	query := `
 		UPDATE transactions
 		SET description = ?,
-		    amount = ?,
+		    amount_cents = ?,
 		    date = ?,
 		    category = ?,
 		    subcategory = ?,
@@ -317,7 +449,7 @@ func (r *Repository) UpdateTransaction(t models.Transaction) error {
 	result, err := r.db.Exec(
 		query,
 		t.Description,
-		t.Amount,
+		t.AmountCents,
 		t.Date,
 		t.Category,
 		t.Subcategory,
@@ -337,6 +469,16 @@ func (r *Repository) UpdateTransaction(t models.Transaction) error {
 	}
 	if rowsAffected == 0 {
 		return fmt.Errorf("no active transaction found with UUID: %s", t.UUID)
+	}
+	return nil
+}
+
+func validateAmountCents(amountCents int64) error {
+	if amountCents <= 0 {
+		return fmt.Errorf("transaction amount must be greater than zero")
+	}
+	if amountCents > models.MaxSafeAmountCents {
+		return fmt.Errorf("transaction amount exceeds the maximum exact supported value")
 	}
 	return nil
 }
@@ -391,7 +533,7 @@ func (r *Repository) RestoreTransaction(uuid string) error {
 // Fetches active transactions based on optional filters
 func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]models.Transaction, error) {
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString("SELECT uuid, description, amount, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE 1 = 1")
+	queryBuilder.WriteString("SELECT uuid, description, amount_cents, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE 1 = 1")
 
 	// args are the values for the '?' placeholders
 	var args []interface{}
@@ -407,9 +549,9 @@ func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]model
 	}
 
 	// Filter by Amount (exact)
-	if filters.Amount != nil {
-		queryBuilder.WriteString(" AND amount = ?")
-		args = append(args, *filters.Amount)
+	if filters.AmountCents != nil {
+		queryBuilder.WriteString(" AND amount_cents = ?")
+		args = append(args, *filters.AmountCents)
 	}
 
 	// Filter by Date (exact)
@@ -449,11 +591,11 @@ func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]model
 
 // Fetches an active Transaction by its UUID
 func (r *Repository) GetTransactionByID(uuid string) (models.Transaction, error) {
-	query := "SELECT uuid, description, amount, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE uuid = ? AND active = 1;"
+	query := "SELECT uuid, description, amount_cents, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE uuid = ? AND active = 1;"
 
 	var t models.Transaction
 
-	err := r.db.QueryRow(query, uuid).Scan(&t.UUID, &t.Description, &t.Amount, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Active)
+	err := r.db.QueryRow(query, uuid).Scan(&t.UUID, &t.Description, &t.AmountCents, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return t, fmt.Errorf("no active transaction found with the UUID: %s", uuid)
@@ -472,7 +614,7 @@ func (r *Repository) scanTransactions(rows *sql.Rows) ([]models.Transaction, err
 
 	for rows.Next() {
 		var t models.Transaction
-		if err := rows.Scan(&t.UUID, &t.Description, &t.Amount, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Active); err != nil {
+		if err := rows.Scan(&t.UUID, &t.Description, &t.AmountCents, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Active); err != nil {
 			return nil, fmt.Errorf("error scanning row: %w", err)
 		}
 		transactions = append(transactions, t)
@@ -490,7 +632,7 @@ func (r *Repository) scanTransactions(rows *sql.Rows) ([]models.Transaction, err
 // GetPendingNotifications returns unpaid transactions due today (or overdue) that haven't been notified today.
 func (r *Repository) GetPendingNotifications(todayDate string) ([]models.Transaction, error) {
 	query := `
-		SELECT t.uuid, t.description, t.amount, t.date, t.category, t.subcategory,
+		SELECT t.uuid, t.description, t.amount_cents, t.date, t.category, t.subcategory,
 		       t.payment_method, t.installments, t.tags, t.is_paid, t.active
 		FROM transactions t
 		INNER JOIN categories c ON c.name = t.category

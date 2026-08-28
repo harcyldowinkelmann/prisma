@@ -17,10 +17,19 @@ type fakeNotificationRepository struct {
 	pendingErr   error
 	pendingCalls int
 	marked       []string
+	currencyCode string
+	currencyErr  error
 }
 
 func (r *fakeNotificationRepository) GetNotificationsEnabled() (bool, error) {
 	return r.enabled, r.settingsErr
+}
+
+func (r *fakeNotificationRepository) GetCurrencyCode() (string, error) {
+	if r.currencyCode == "" {
+		return "USD", r.currencyErr
+	}
+	return r.currencyCode, r.currencyErr
 }
 
 func (r *fakeNotificationRepository) GetPendingNotifications(string) ([]models.Transaction, error) {
@@ -72,7 +81,7 @@ func TestCheckAndNotifySendsEnglishMessageAndMarksTransaction(t *testing.T) {
 	repo := &fakeNotificationRepository{
 		enabled: true,
 		pending: []models.Transaction{{
-			UUID: id, Description: "Internet bill", Amount: 125.45,
+			UUID: id, Description: "Internet bill", AmountCents: 12545,
 		}},
 	}
 	sender := &fakeNotificationSender{}
@@ -99,8 +108,8 @@ func TestCheckAndNotifyDoesNotMarkFailedDeliveryAndContinues(t *testing.T) {
 	repo := &fakeNotificationRepository{
 		enabled: true,
 		pending: []models.Transaction{
-			{UUID: failedID, Description: "First expense", Amount: 10},
-			{UUID: successID, Description: "Second expense", Amount: 20},
+			{UUID: failedID, Description: "First expense", AmountCents: 1000},
+			{UUID: successID, Description: "Second expense", AmountCents: 2000},
 		},
 	}
 	sender := &fakeNotificationSender{failCalls: map[int]bool{1: true}}
@@ -112,6 +121,26 @@ func TestCheckAndNotifyDoesNotMarkFailedDeliveryAndContinues(t *testing.T) {
 	}
 	if len(repo.marked) != 1 || repo.marked[0] != successID.String()+"@2026-08-26" {
 		t.Fatalf("expected only the successful delivery to be marked, got %#v", repo.marked)
+	}
+}
+
+func TestCheckAndNotifyUsesConfiguredCurrency(t *testing.T) {
+	repo := &fakeNotificationRepository{
+		enabled:      true,
+		currencyCode: "BRL",
+		pending: []models.Transaction{{
+			UUID: uuid.New(), Description: "Electricity bill", AmountCents: 9876,
+		}},
+	}
+	sender := &fakeNotificationSender{}
+
+	checkAndNotify(repo, sender, "2026-08-26")
+
+	if len(sender.sent) != 1 {
+		t.Fatalf("expected one notification, got %#v", sender.sent)
+	}
+	if sender.sent[0].message != "You have an unpaid expense: Electricity bill for R$98.76" {
+		t.Errorf("unexpected message %q", sender.sent[0].message)
 	}
 }
 

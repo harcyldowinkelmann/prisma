@@ -70,7 +70,7 @@
             :color="category.type === 1 ? 'success' : 'warning'"
             variant="tonal"
           >
-            {{ category.name }}: {{ formatMoney(category.total_amount) }}
+            {{ category.name }}: {{ formatMoney(category.total_amount_cents) }}
           </v-chip>
         </div>
       </div>
@@ -81,7 +81,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { GetFinancialMetrics } from '../../wailsjs/go/main/App';
-import { formatCurrency } from '../utils/currency';
+import { formatCurrencyFromCents } from '../utils/currency';
 
 const props = defineProps({
   currencyCode: {
@@ -106,33 +106,33 @@ const periodTitle = computed(() => new Intl.DateTimeFormat('en-US', {
 
 const categoryMetrics = computed(() => (
   metrics.value.categories || []
-).filter(category => Number(category.total_amount) !== 0));
+).filter(category => Number(category.total_amount_cents) !== 0));
 
 const metricCards = computed(() => [
   {
     title: 'Received Income',
-    value: formatMoney(metrics.value.received_income),
+    value: formatMoney(metrics.value.received_income_cents),
     color: 'success',
   },
   {
     title: 'Paid Expenses',
-    value: formatMoney(metrics.value.paid_expenses),
+    value: formatMoney(metrics.value.paid_expenses_cents),
     color: 'warning',
   },
   {
     title: 'Actual Balance',
-    value: formatMoney(metrics.value.actual_balance),
-    color: metrics.value.actual_balance >= 0 ? 'success' : 'error',
+    value: formatMoney(metrics.value.actual_balance_cents),
+    color: metrics.value.actual_balance_cents >= 0 ? 'success' : 'error',
   },
   {
     title: 'Pending Expenses',
-    value: formatMoney(metrics.value.pending_expenses),
+    value: formatMoney(metrics.value.pending_expenses_cents),
     color: 'warning',
   },
   {
     title: 'Expected Balance',
-    value: formatMoney(metrics.value.expected_balance),
-    color: metrics.value.expected_balance >= 0 ? 'primary' : 'error',
+    value: formatMoney(metrics.value.expected_balance_cents),
+    color: metrics.value.expected_balance_cents >= 0 ? 'primary' : 'error',
   },
   {
     title: 'Income Spent',
@@ -145,11 +145,11 @@ const metricCards = computed(() => [
 
 function emptyMetrics() {
   return {
-    received_income: 0,
-    paid_expenses: 0,
-    pending_expenses: 0,
-    actual_balance: 0,
-    expected_balance: 0,
+    received_income_cents: 0,
+    paid_expenses_cents: 0,
+    pending_expenses_cents: 0,
+    actual_balance_cents: 0,
+    expected_balance_cents: 0,
     income_spent_percentage: 0,
     has_received_income: false,
     categories: [],
@@ -176,8 +176,8 @@ function getPeriodRange() {
   };
 }
 
-function formatMoney(value) {
-  return formatCurrency(value, props.currencyCode);
+function formatMoney(valueCents) {
+  return formatCurrencyFromCents(valueCents, props.currencyCode);
 }
 
 async function loadMetrics() {

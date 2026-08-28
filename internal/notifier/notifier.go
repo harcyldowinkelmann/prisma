@@ -17,6 +17,7 @@ type notificationSender interface {
 
 type notificationRepository interface {
 	GetNotificationsEnabled() (bool, error)
+	GetCurrencyCode() (string, error)
 	GetPendingNotifications(todayDate string) ([]models.Transaction, error)
 	MarkAsNotified(uuid string, date string) error
 }
@@ -82,9 +83,18 @@ func checkAndNotify(repo notificationRepository, sender notificationSender, toda
 		log.Printf("Failed to fetch pending expenses: %v", err)
 		return
 	}
+	currencyCode, err := repo.GetCurrencyCode()
+	if err != nil {
+		log.Printf("Failed to read currency settings, using USD: %v", err)
+		currencyCode = "USD"
+	}
 
 	for _, transaction := range pending {
-		message := fmt.Sprintf("You have an unpaid expense: %s for $%.2f", transaction.Description, transaction.Amount)
+		message := fmt.Sprintf(
+			"You have an unpaid expense: %s for %s",
+			transaction.Description,
+			formatNotificationAmount(transaction.AmountCents, currencyCode),
+		)
 		if err := sender.Send("Payment Reminder", message); err != nil {
 			log.Printf("Failed to send payment reminder: %v", err)
 			continue
@@ -94,4 +104,30 @@ func checkAndNotify(repo notificationRepository, sender notificationSender, toda
 			log.Printf("Failed to mark transaction as notified: %v", err)
 		}
 	}
+}
+
+func formatNotificationAmount(amountCents int64, currencyCode string) string {
+	symbols := map[string]string{
+		"AUD": "A$",
+		"BRL": "R$",
+		"CAD": "CA$",
+		"EUR": "€",
+		"GBP": "£",
+		"JPY": "¥",
+		"USD": "$",
+	}
+	symbol, ok := symbols[currencyCode]
+	if !ok {
+		symbol = currencyCode + " "
+	}
+	prefix := symbol
+	if amountCents < 0 {
+		prefix = "-" + symbol
+		amountCents = -amountCents
+	}
+
+	if currencyCode == "JPY" {
+		return fmt.Sprintf("%s%d", prefix, (amountCents+50)/100)
+	}
+	return fmt.Sprintf("%s%d.%02d", prefix, amountCents/100, amountCents%100)
 }

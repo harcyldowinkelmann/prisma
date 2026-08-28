@@ -7,6 +7,8 @@ import (
 	"prisma/internal/database"
 	"prisma/internal/models"
 	"prisma/internal/notifier"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,15 +65,18 @@ func (a *App) shutdown(_ context.Context) {
 }
 
 // SaveTransaction is the bridge function the Vue frontend will call.
-// TODO: Validate incoming data before passing it to the save function
-func (a *App) SaveTransaction(description string, amount float64, date string, category string, subcategory string, paymentMethod string, installments string, tags string, isPaid bool) (string, error) {
+func (a *App) SaveTransaction(description string, amount string, date string, category string, subcategory string, paymentMethod string, installments string, tags string, isPaid bool) (string, error) {
+	amountCents, err := parseAmountToCents(amount)
+	if err != nil {
+		return "", err
+	}
 	newUUID := uuid.New()
 
 	// 2. Create the data model
 	newTransaction := models.Transaction{
 		UUID:          newUUID,
 		Description:   description,
-		Amount:        amount,
+		AmountCents:   amountCents,
 		Date:          date,
 		Category:      category,
 		Subcategory:   subcategory,
@@ -83,7 +88,7 @@ func (a *App) SaveTransaction(description string, amount float64, date string, c
 	}
 
 	// 3. Call the "backend" layer (Repository)
-	err := a.db.SaveTransaction(newTransaction)
+	err = a.db.SaveTransaction(newTransaction)
 	if err != nil {
 		// Return error to Vue.js
 		return "", fmt.Errorf("error saving to database: %w", err)
@@ -94,16 +99,20 @@ func (a *App) SaveTransaction(description string, amount float64, date string, c
 }
 
 // UpdateTransaction updates an existing active transaction.
-func (a *App) UpdateTransaction(transactionUUID string, description string, amount float64, date string, category string, subcategory string, paymentMethod string, installments string, tags string, isPaid bool) (string, error) {
+func (a *App) UpdateTransaction(transactionUUID string, description string, amount string, date string, category string, subcategory string, paymentMethod string, installments string, tags string, isPaid bool) (string, error) {
 	parsedUUID, err := uuid.Parse(transactionUUID)
 	if err != nil {
 		return "", fmt.Errorf("invalid transaction UUID: %w", err)
+	}
+	amountCents, err := parseAmountToCents(amount)
+	if err != nil {
+		return "", err
 	}
 
 	transaction := models.Transaction{
 		UUID:          parsedUUID,
 		Description:   description,
-		Amount:        amount,
+		AmountCents:   amountCents,
 		Date:          date,
 		Category:      category,
 		Subcategory:   subcategory,
@@ -118,6 +127,55 @@ func (a *App) UpdateTransaction(transactionUUID string, description string, amou
 		return "", fmt.Errorf("error updating transaction: %w", err)
 	}
 	return "Transaction updated successfully!", nil
+}
+
+// parseAmountToCents converts a user-entered decimal string without using
+// floating-point arithmetic, preventing rounding errors at the data boundary.
+func parseAmountToCents(amount string) (int64, error) {
+	amount = strings.TrimSpace(amount)
+	parts := strings.Split(amount, ".")
+	if len(parts) > 2 || amount == "" {
+		return 0, fmt.Errorf("amount must be a positive number with at most two decimal places")
+	}
+
+	wholePart := parts[0]
+	if wholePart == "" {
+		wholePart = "0"
+	}
+	fractionPart := ""
+	if len(parts) == 2 {
+		fractionPart = parts[1]
+	}
+	if len(fractionPart) > 2 || !containsOnlyDigits(wholePart) || !containsOnlyDigits(fractionPart) {
+		return 0, fmt.Errorf("amount must be a positive number with at most two decimal places")
+	}
+
+	fractionPart += strings.Repeat("0", 2-len(fractionPart))
+	wholePart = strings.TrimLeft(wholePart, "0")
+	if wholePart == "" {
+		wholePart = "0"
+	}
+
+	cents, err := strconv.ParseInt(wholePart+fractionPart, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("amount is too large: %w", err)
+	}
+	if cents <= 0 {
+		return 0, fmt.Errorf("amount must be greater than zero")
+	}
+	if cents > models.MaxSafeAmountCents {
+		return 0, fmt.Errorf("amount exceeds the maximum supported value")
+	}
+	return cents, nil
+}
+
+func containsOnlyDigits(value string) bool {
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) SoftDeleteTransaction(uuid string) (string, error) {

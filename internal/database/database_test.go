@@ -63,6 +63,15 @@ func TestInitTablesMigratesLegacySchemaAndPreservesPreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create legacy schema: %v", err)
 	}
+	_, err = db.Exec(`
+		INSERT INTO transactions (uuid, description, amount, date, category, active)
+		VALUES (?, 'Exact decimal', 12.34, '2026-08-01', 'Fixed Expenses', 1),
+		       (?, 'Single decimal', 0.1, '2026-08-02', 'Fixed Expenses', 1),
+		       (?, 'Rounded legacy decimal', 19.995, '2026-08-03', 'Fixed Expenses', 1);
+	`, uuid.New().String(), uuid.New().String(), uuid.New().String())
+	if err != nil {
+		t.Fatalf("insert legacy transactions: %v", err)
+	}
 
 	repo := &Repository{db: db}
 	if err := repo.initTables(); err != nil {
@@ -105,6 +114,53 @@ func TestInitTablesMigratesLegacySchemaAndPreservesPreference(t *testing.T) {
 			t.Errorf("expected migrated column %q", migration.name)
 		}
 	}
+	if !columns["amount_cents"] {
+		t.Fatal("expected integer amount_cents column after migration")
+	}
+	if columns["amount"] {
+		t.Fatal("expected legacy floating-point amount column to be removed")
+	}
+
+	wantCents := map[string]int64{
+		"Exact decimal":          1234,
+		"Single decimal":         10,
+		"Rounded legacy decimal": 2000,
+	}
+	amountRows, err := db.Query("SELECT description, amount_cents FROM transactions;")
+	if err != nil {
+		t.Fatalf("read migrated transaction amounts: %v", err)
+	}
+	for amountRows.Next() {
+		var description string
+		var amountCents int64
+		if err := amountRows.Scan(&description, &amountCents); err != nil {
+			amountRows.Close()
+			t.Fatalf("scan migrated transaction amount: %v", err)
+		}
+		if amountCents != wantCents[description] {
+			t.Errorf("%s: expected %d cents, got %d", description, wantCents[description], amountCents)
+		}
+		delete(wantCents, description)
+	}
+	if err := amountRows.Err(); err != nil {
+		amountRows.Close()
+		t.Fatalf("iterate migrated transaction amounts: %v", err)
+	}
+	if err := amountRows.Close(); err != nil {
+		t.Fatalf("close migrated transaction amounts: %v", err)
+	}
+	if len(wantCents) != 0 {
+		t.Fatalf("missing migrated transaction amounts: %#v", wantCents)
+	}
+	var nonIntegerAmounts int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM transactions WHERE typeof(amount_cents) != 'integer';",
+	).Scan(&nonIntegerAmounts); err != nil {
+		t.Fatalf("verify migrated amount storage type: %v", err)
+	}
+	if nonIntegerAmounts != 0 {
+		t.Fatalf("expected every migrated amount to use SQLite integer storage, found %d invalid values", nonIntegerAmounts)
+	}
 
 	enabled, err := repo.GetNotificationsEnabled()
 	if err != nil {
@@ -135,9 +191,9 @@ func TestGetPendingNotificationsFiltersIneligibleTransactions(t *testing.T) {
 	const today = "2026-08-26"
 
 	eligible := []models.Transaction{
-		{UUID: uuid.New(), Description: "Due today", Amount: 100, Date: today, Category: "Fixed Expenses", Active: true},
-		{UUID: uuid.New(), Description: "Overdue", Amount: 200, Date: "2026-08-25", Category: "Variable Expenses", Active: true},
-		{UUID: uuid.New(), Description: "Notified yesterday", Amount: 300, Date: "2026-08-24", Category: "Fixed Expenses", Active: true},
+		{UUID: uuid.New(), Description: "Due today", AmountCents: 10000, Date: today, Category: "Fixed Expenses", Active: true},
+		{UUID: uuid.New(), Description: "Overdue", AmountCents: 20000, Date: "2026-08-25", Category: "Variable Expenses", Active: true},
+		{UUID: uuid.New(), Description: "Notified yesterday", AmountCents: 30000, Date: "2026-08-24", Category: "Fixed Expenses", Active: true},
 	}
 	for _, transaction := range eligible {
 		saveTestTransaction(t, repo, transaction)
@@ -147,11 +203,11 @@ func TestGetPendingNotificationsFiltersIneligibleTransactions(t *testing.T) {
 	}
 
 	ineligible := []models.Transaction{
-		{UUID: uuid.New(), Description: "Future expense", Amount: 10, Date: "2026-08-27", Category: "Fixed Expenses", Active: true},
-		{UUID: uuid.New(), Description: "Paid expense", Amount: 20, Date: today, Category: "Fixed Expenses", IsPaid: true, Active: true},
-		{UUID: uuid.New(), Description: "Pending income", Amount: 30, Date: today, Category: "Incomes", Active: true},
-		{UUID: uuid.New(), Description: "Archived expense", Amount: 40, Date: today, Category: "Fixed Expenses", Active: false},
-		{UUID: uuid.New(), Description: "Already notified", Amount: 50, Date: today, Category: "Fixed Expenses", Active: true},
+		{UUID: uuid.New(), Description: "Future expense", AmountCents: 1000, Date: "2026-08-27", Category: "Fixed Expenses", Active: true},
+		{UUID: uuid.New(), Description: "Paid expense", AmountCents: 2000, Date: today, Category: "Fixed Expenses", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Pending income", AmountCents: 3000, Date: today, Category: "Incomes", Active: true},
+		{UUID: uuid.New(), Description: "Archived expense", AmountCents: 4000, Date: today, Category: "Fixed Expenses", Active: false},
+		{UUID: uuid.New(), Description: "Already notified", AmountCents: 5000, Date: today, Category: "Fixed Expenses", Active: true},
 	}
 	for _, transaction := range ineligible {
 		saveTestTransaction(t, repo, transaction)
@@ -175,7 +231,7 @@ func TestGetPendingNotificationsFiltersIneligibleTransactions(t *testing.T) {
 		}
 	}
 	saveTestTransaction(t, repo, models.Transaction{
-		UUID: uuid.New(), Description: "Inactive category", Amount: 60,
+		UUID: uuid.New(), Description: "Inactive category", AmountCents: 6000,
 		Date: today, Category: "Inactive Expenses", Active: true,
 	})
 
@@ -229,15 +285,15 @@ func TestGetFinancialMetricsCalculatesSelectedPeriod(t *testing.T) {
 	}
 
 	transactions := []models.Transaction{
-		{UUID: uuid.New(), Description: "Received salary", Amount: 3000, Date: "2026-08-05", Category: "Incomes", IsPaid: true, Active: true},
-		{UUID: uuid.New(), Description: "Expected bonus", Amount: 500, Date: "2026-08-20", Category: "Incomes", IsPaid: false, Active: true},
-		{UUID: uuid.New(), Description: "Paid rent", Amount: 1200, Date: "2026-08-10", Category: "Fixed Expenses", IsPaid: true, Active: true},
-		{UUID: uuid.New(), Description: "Pending electricity", Amount: 300, Date: "2026-08-25", Category: "Fixed Expenses", IsPaid: false, Active: true},
-		{UUID: uuid.New(), Description: "Paid groceries", Amount: 200, Date: "2026-08-11", Category: "Variable Expenses", IsPaid: true, Active: true},
-		{UUID: uuid.New(), Description: "Pending subscription", Amount: 100, Date: "2026-08-12", Category: "Subscriptions", IsPaid: false, Active: true},
-		{UUID: uuid.New(), Description: "Archived expense", Amount: 999, Date: "2026-08-15", Category: "Variable Expenses", IsPaid: true, Active: false},
-		{UUID: uuid.New(), Description: "Previous month expense", Amount: 800, Date: "2026-07-31", Category: "Fixed Expenses", IsPaid: true, Active: true},
-		{UUID: uuid.New(), Description: "Next month income", Amount: 900, Date: "2026-09-01", Category: "Incomes", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Received salary", AmountCents: 300000, Date: "2026-08-05", Category: "Incomes", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Expected bonus", AmountCents: 50000, Date: "2026-08-20", Category: "Incomes", IsPaid: false, Active: true},
+		{UUID: uuid.New(), Description: "Paid rent", AmountCents: 120000, Date: "2026-08-10", Category: "Fixed Expenses", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Pending electricity", AmountCents: 30000, Date: "2026-08-25", Category: "Fixed Expenses", IsPaid: false, Active: true},
+		{UUID: uuid.New(), Description: "Paid groceries", AmountCents: 20000, Date: "2026-08-11", Category: "Variable Expenses", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Pending subscription", AmountCents: 10000, Date: "2026-08-12", Category: "Subscriptions", IsPaid: false, Active: true},
+		{UUID: uuid.New(), Description: "Archived expense", AmountCents: 99900, Date: "2026-08-15", Category: "Variable Expenses", IsPaid: true, Active: false},
+		{UUID: uuid.New(), Description: "Previous month expense", AmountCents: 80000, Date: "2026-07-31", Category: "Fixed Expenses", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Next month income", AmountCents: 90000, Date: "2026-09-01", Category: "Incomes", IsPaid: true, Active: true},
 	}
 	for _, transaction := range transactions {
 		saveTestTransaction(t, repo, transaction)
@@ -248,21 +304,21 @@ func TestGetFinancialMetricsCalculatesSelectedPeriod(t *testing.T) {
 		t.Fatalf("get financial metrics: %v", err)
 	}
 
-	assertFloatEqual(t, "received income", metrics.ReceivedIncome, 3000)
-	assertFloatEqual(t, "paid expenses", metrics.PaidExpenses, 1400)
-	assertFloatEqual(t, "pending expenses", metrics.PendingExpenses, 400)
-	assertFloatEqual(t, "actual balance", metrics.ActualBalance, 1600)
-	assertFloatEqual(t, "expected balance", metrics.ExpectedBalance, 1700)
+	assertInt64Equal(t, "received income", metrics.ReceivedIncomeCents, 300000)
+	assertInt64Equal(t, "paid expenses", metrics.PaidExpensesCents, 140000)
+	assertInt64Equal(t, "pending expenses", metrics.PendingExpensesCents, 40000)
+	assertInt64Equal(t, "actual balance", metrics.ActualBalanceCents, 160000)
+	assertInt64Equal(t, "expected balance", metrics.ExpectedBalanceCents, 170000)
 	assertFloatEqual(t, "income spent percentage", metrics.IncomeSpentPercentage, 46.6666666667)
 	if !metrics.HasReceivedIncome {
 		t.Fatal("expected received income flag to be true")
 	}
 
 	wantCategories := map[string]models.CategoryMetric{
-		"Incomes":           {TotalAmount: 3500, PaidAmount: 3000, PendingAmount: 500},
-		"Fixed Expenses":    {TotalAmount: 1500, PaidAmount: 1200, PendingAmount: 300},
-		"Variable Expenses": {TotalAmount: 200, PaidAmount: 200, PendingAmount: 0},
-		"Subscriptions":     {TotalAmount: 100, PaidAmount: 0, PendingAmount: 100},
+		"Incomes":           {TotalAmountCents: 350000, PaidAmountCents: 300000, PendingAmountCents: 50000},
+		"Fixed Expenses":    {TotalAmountCents: 150000, PaidAmountCents: 120000, PendingAmountCents: 30000},
+		"Variable Expenses": {TotalAmountCents: 20000, PaidAmountCents: 20000, PendingAmountCents: 0},
+		"Subscriptions":     {TotalAmountCents: 10000, PaidAmountCents: 0, PendingAmountCents: 10000},
 	}
 	if len(metrics.Categories) != len(wantCategories) {
 		t.Fatalf("expected %d category metrics, got %d", len(wantCategories), len(metrics.Categories))
@@ -273,16 +329,16 @@ func TestGetFinancialMetricsCalculatesSelectedPeriod(t *testing.T) {
 			t.Errorf("unexpected category metric %q", category.Name)
 			continue
 		}
-		assertFloatEqual(t, category.Name+" total", category.TotalAmount, want.TotalAmount)
-		assertFloatEqual(t, category.Name+" paid", category.PaidAmount, want.PaidAmount)
-		assertFloatEqual(t, category.Name+" pending", category.PendingAmount, want.PendingAmount)
+		assertInt64Equal(t, category.Name+" total", category.TotalAmountCents, want.TotalAmountCents)
+		assertInt64Equal(t, category.Name+" paid", category.PaidAmountCents, want.PaidAmountCents)
+		assertInt64Equal(t, category.Name+" pending", category.PendingAmountCents, want.PendingAmountCents)
 	}
 }
 
 func TestGetFinancialMetricsHandlesNoReceivedIncome(t *testing.T) {
 	repo := newTestRepository(t)
 	saveTestTransaction(t, repo, models.Transaction{
-		UUID: uuid.New(), Description: "Pending expense", Amount: 50,
+		UUID: uuid.New(), Description: "Pending expense", AmountCents: 5000,
 		Date: "2026-08-10", Category: "Fixed Expenses", Active: true,
 	})
 
@@ -294,7 +350,26 @@ func TestGetFinancialMetricsHandlesNoReceivedIncome(t *testing.T) {
 		t.Fatal("expected received income flag to be false")
 	}
 	assertFloatEqual(t, "income spent percentage", metrics.IncomeSpentPercentage, 0)
-	assertFloatEqual(t, "expected balance", metrics.ExpectedBalance, -50)
+	assertInt64Equal(t, "expected balance", metrics.ExpectedBalanceCents, -5000)
+}
+
+func TestGetFinancialMetricsAddsCentsExactly(t *testing.T) {
+	repo := newTestRepository(t)
+	saveTestTransaction(t, repo, models.Transaction{
+		UUID: uuid.New(), Description: "Ten cents", AmountCents: 10,
+		Date: "2026-08-10", Category: "Incomes", IsPaid: true, Active: true,
+	})
+	saveTestTransaction(t, repo, models.Transaction{
+		UUID: uuid.New(), Description: "Twenty cents", AmountCents: 20,
+		Date: "2026-08-11", Category: "Incomes", IsPaid: true, Active: true,
+	})
+
+	metrics, err := repo.GetFinancialMetrics("2026-08-01", "2026-08-31")
+	if err != nil {
+		t.Fatalf("get exact cent metrics: %v", err)
+	}
+	assertInt64Equal(t, "exact received income", metrics.ReceivedIncomeCents, 30)
+	assertInt64Equal(t, "exact actual balance", metrics.ActualBalanceCents, 30)
 }
 
 func TestGetFinancialMetricsValidatesDateRange(t *testing.T) {
@@ -351,10 +426,10 @@ func TestCurrencySettingPersistsAndRejectsUnsupportedCodes(t *testing.T) {
 func TestGetTransactionsSupportsArchiveStatusAndDateFilters(t *testing.T) {
 	repo := newTestRepository(t)
 	transactions := []models.Transaction{
-		{UUID: uuid.New(), Description: "Paid August expense", Amount: 100, Date: "2026-08-10", Category: "Fixed Expenses", IsPaid: true, Active: true},
-		{UUID: uuid.New(), Description: "Pending August expense", Amount: 200, Date: "2026-08-20", Category: "Fixed Expenses", IsPaid: false, Active: true},
-		{UUID: uuid.New(), Description: "September expense", Amount: 300, Date: "2026-09-05", Category: "Variable Expenses", IsPaid: true, Active: true},
-		{UUID: uuid.New(), Description: "Archived August expense", Amount: 400, Date: "2026-08-15", Category: "Fixed Expenses", IsPaid: true, Active: false},
+		{UUID: uuid.New(), Description: "Paid August expense", AmountCents: 10000, Date: "2026-08-10", Category: "Fixed Expenses", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Pending August expense", AmountCents: 20000, Date: "2026-08-20", Category: "Fixed Expenses", IsPaid: false, Active: true},
+		{UUID: uuid.New(), Description: "September expense", AmountCents: 30000, Date: "2026-09-05", Category: "Variable Expenses", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Archived August expense", AmountCents: 40000, Date: "2026-08-15", Category: "Fixed Expenses", IsPaid: true, Active: false},
 	}
 	for _, transaction := range transactions {
 		saveTestTransaction(t, repo, transaction)
@@ -393,13 +468,25 @@ func TestGetTransactionsSupportsArchiveStatusAndDateFilters(t *testing.T) {
 	if len(filtered) != 2 {
 		t.Fatalf("expected 2 paid August fixed expenses including archived, got %d", len(filtered))
 	}
+
+	amountCents := int64(10000)
+	amountFiltered, err := repo.GetTransactions(models.TransactionFilters{
+		AmountCents:     &amountCents,
+		IncludeArchived: true,
+	})
+	if err != nil {
+		t.Fatalf("get transactions filtered by exact cents: %v", err)
+	}
+	if len(amountFiltered) != 1 || amountFiltered[0].Description != "Paid August expense" {
+		t.Fatalf("unexpected exact cent filter results: %#v", amountFiltered)
+	}
 }
 
 func TestUpdateArchiveAndRestoreTransaction(t *testing.T) {
 	repo := newTestRepository(t)
 	transactionID := uuid.New()
 	saveTestTransaction(t, repo, models.Transaction{
-		UUID: transactionID, Description: "Original expense", Amount: 50,
+		UUID: transactionID, Description: "Original expense", AmountCents: 5000,
 		Date: "2026-08-10", Category: "Fixed Expenses", Active: true,
 	})
 	if err := repo.MarkAsNotified(transactionID.String(), "2026-08-10"); err != nil {
@@ -409,7 +496,7 @@ func TestUpdateArchiveAndRestoreTransaction(t *testing.T) {
 	updated := models.Transaction{
 		UUID:          transactionID,
 		Description:   "Updated expense",
-		Amount:        75.25,
+		AmountCents:   7525,
 		Date:          "2026-08-12",
 		Category:      "Variable Expenses",
 		Subcategory:   "Food",
@@ -428,7 +515,7 @@ func TestUpdateArchiveAndRestoreTransaction(t *testing.T) {
 		t.Fatalf("get updated transaction: %v", err)
 	}
 	if stored.Description != updated.Description ||
-		stored.Amount != updated.Amount ||
+		stored.AmountCents != updated.AmountCents ||
 		stored.Date != updated.Date ||
 		stored.Category != updated.Category ||
 		stored.Subcategory != updated.Subcategory ||
@@ -467,9 +554,40 @@ func TestUpdateArchiveAndRestoreTransaction(t *testing.T) {
 	}
 }
 
+func TestSaveTransactionRejectsInexactRange(t *testing.T) {
+	repo := newTestRepository(t)
+	testCases := []struct {
+		name        string
+		amountCents int64
+	}{
+		{name: "zero", amountCents: 0},
+		{name: "negative", amountCents: -1},
+		{name: "above JavaScript safe integer", amountCents: models.MaxSafeAmountCents + 1},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := repo.SaveTransaction(models.Transaction{
+				UUID: uuid.New(), Description: testCase.name, AmountCents: testCase.amountCents,
+				Date: "2026-08-01", Category: "Fixed Expenses", Active: true,
+			})
+			if err == nil {
+				t.Fatal("expected invalid cent amount to be rejected")
+			}
+		})
+	}
+}
+
 func assertFloatEqual(t *testing.T, label string, got float64, want float64) {
 	t.Helper()
 	if math.Abs(got-want) > 0.000001 {
 		t.Errorf("%s: expected %.10f, got %.10f", label, want, got)
+	}
+}
+
+func assertInt64Equal(t *testing.T, label string, got int64, want int64) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s: expected %d, got %d", label, want, got)
 	}
 }

@@ -1,18 +1,30 @@
-export function formatCurrency(value, currencyCode = 'USD') {
-  const numericValue = Number(value);
-  const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+export function formatCurrencyFromCents(valueCents, currencyCode = 'USD') {
+  const numericCents = Number(valueCents);
+  const safeCents = Number.isSafeInteger(numericCents) ? numericCents : 0;
+  const value = safeCents / 100;
 
   try {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currencyCode,
-    }).format(safeValue);
+    }).format(value);
   } catch {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-    }).format(safeValue);
+    }).format(value);
   }
+}
+
+export function centsToDecimalString(valueCents) {
+  const numericCents = Number(valueCents);
+  if (!Number.isSafeInteger(numericCents)) return '';
+
+  const sign = numericCents < 0 ? '-' : '';
+  const absoluteCents = Math.abs(numericCents);
+  const wholeUnits = Math.floor(absoluteCents / 100);
+  const cents = String(absoluteCents % 100).padStart(2, '0');
+  return `${sign}${wholeUnits}.${cents}`;
 }
 
 export function getCurrencySymbol(currencyCode = 'USD') {

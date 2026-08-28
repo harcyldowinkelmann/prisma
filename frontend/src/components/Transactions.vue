@@ -127,7 +127,7 @@
             </td>
             <td>{{ transaction.category }}</td>
             <td>{{ formatDate(transaction.date) }}</td>
-            <td class="text-right font-weight-medium">{{ formatMoney(transaction.amount) }}</td>
+            <td class="text-right font-weight-medium">{{ formatMoney(transaction.amount_cents) }}</td>
             <td>
               <v-chip :color="getStatusColor(transaction)" size="small" variant="tonal">
                 {{ getStatusLabel(transaction) }}
@@ -180,7 +180,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { GetCategories, GetTransactions } from '../../wailsjs/go/main/App';
-import { formatCurrency } from '../utils/currency';
+import { formatCurrencyFromCents } from '../utils/currency';
 
 const props = defineProps({
   currencyCode: {
@@ -272,8 +272,8 @@ function clearFilters() {
   endDate.value = '';
 }
 
-function formatMoney(value) {
-  return formatCurrency(value, props.currencyCode);
+function formatMoney(valueCents) {
+  return formatCurrencyFromCents(valueCents, props.currencyCode);
 }
 
 function formatDate(isoDate) {

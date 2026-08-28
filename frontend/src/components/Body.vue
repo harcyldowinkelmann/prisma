@@ -31,7 +31,7 @@
               <div class="d-flex justify-space-between align-center">
                 <div class="text-body-1">{{ item?.description || 'No description' }}</div>
                 <div class="text-body-2 font-weight-bold">
-                  {{ formatMoney(item?.amount || 0) }}
+                  {{ formatMoney(item?.amount_cents || 0) }}
                 </div>
               </div>
               <div class="text-caption text-disabled">{{ formatDate(item?.date) }}</div>
@@ -68,7 +68,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { formatCurrency } from '../utils/currency';
+import { formatCurrencyFromCents } from '../utils/currency';
 
 const props = defineProps({
   title: {
@@ -105,11 +105,11 @@ function onInactivateClick(item) {
 }
 
 const totalValue = computed(() => {
-  return safeItems.value.reduce((acc, item) => acc + (item.amount || 0), 0)
+  return safeItems.value.reduce((acc, item) => acc + (item.amount_cents || 0), 0)
 });
 
-function formatMoney(value) {
-  return formatCurrency(value, props.currencyCode);
+function formatMoney(valueCents) {
+  return formatCurrencyFromCents(valueCents, props.currencyCode);
 }
 
 function formatDate(isoDate) {

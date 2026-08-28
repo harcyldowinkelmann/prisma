@@ -179,7 +179,7 @@ import {
   SaveTransaction,
   UpdateTransaction,
 } from '../../wailsjs/go/main/App';
-import { getCurrencySymbol } from '../utils/currency';
+import { centsToDecimalString, getCurrencySymbol } from '../utils/currency';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -250,7 +250,7 @@ function populateForm() {
   }
 
   form.description = props.transaction.description || '';
-  form.amount = props.transaction.amount ?? '';
+  form.amount = centsToDecimalString(props.transaction.amount_cents);
   form.date = props.transaction.date || getLocalDate();
   form.category = props.transaction.category || props.category || '';
   form.subcategory = props.transaction.subcategory || '';
@@ -299,8 +299,9 @@ function showError(message) {
 }
 
 async function save() {
-  const amount = Number(form.amount);
-  if (!form.description.trim() || !form.category || !form.date || !Number.isFinite(amount) || amount <= 0) {
+  const amount = String(form.amount || '').trim();
+  const validAmount = /^(?:\d+|\d*\.\d{1,2})$/.test(amount) && !/^0*(?:\.0{1,2})?$/.test(amount);
+  if (!form.description.trim() || !form.category || !form.date || !validAmount) {
     showError('Description, category, date, and a positive amount are required.');
     return;
   }

@@ -21,9 +21,9 @@ export namespace models {
 	export class CategoryMetric {
 	    name: string;
 	    type: number;
-	    total_amount: number;
-	    paid_amount: number;
-	    pending_amount: number;
+	    total_amount_cents: number;
+	    paid_amount_cents: number;
+	    pending_amount_cents: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new CategoryMetric(source);
@@ -33,17 +33,17 @@ export namespace models {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.type = source["type"];
-	        this.total_amount = source["total_amount"];
-	        this.paid_amount = source["paid_amount"];
-	        this.pending_amount = source["pending_amount"];
+	        this.total_amount_cents = source["total_amount_cents"];
+	        this.paid_amount_cents = source["paid_amount_cents"];
+	        this.pending_amount_cents = source["pending_amount_cents"];
 	    }
 	}
 	export class FinancialMetrics {
-	    received_income: number;
-	    paid_expenses: number;
-	    pending_expenses: number;
-	    actual_balance: number;
-	    expected_balance: number;
+	    received_income_cents: number;
+	    paid_expenses_cents: number;
+	    pending_expenses_cents: number;
+	    actual_balance_cents: number;
+	    expected_balance_cents: number;
 	    income_spent_percentage: number;
 	    has_received_income: boolean;
 	    categories: CategoryMetric[];
@@ -54,11 +54,11 @@ export namespace models {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.received_income = source["received_income"];
-	        this.paid_expenses = source["paid_expenses"];
-	        this.pending_expenses = source["pending_expenses"];
-	        this.actual_balance = source["actual_balance"];
-	        this.expected_balance = source["expected_balance"];
+	        this.received_income_cents = source["received_income_cents"];
+	        this.paid_expenses_cents = source["paid_expenses_cents"];
+	        this.pending_expenses_cents = source["pending_expenses_cents"];
+	        this.actual_balance_cents = source["actual_balance_cents"];
+	        this.expected_balance_cents = source["expected_balance_cents"];
 	        this.income_spent_percentage = source["income_spent_percentage"];
 	        this.has_received_income = source["has_received_income"];
 	        this.categories = this.convertValues(source["categories"], CategoryMetric);
@@ -101,7 +101,7 @@ export namespace models {
 	export class Transaction {
 	    id: number[];
 	    description: string;
-	    amount: number;
+	    amount_cents: number;
 	    date: string;
 	    category: string;
 	    subcategory: string;
@@ -119,7 +119,7 @@ export namespace models {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.description = source["description"];
-	        this.amount = source["amount"];
+	        this.amount_cents = source["amount_cents"];
 	        this.date = source["date"];
 	        this.category = source["category"];
 	        this.subcategory = source["subcategory"];
@@ -132,7 +132,7 @@ export namespace models {
 	}
 	export class TransactionFilters {
 	    description?: string;
-	    amount?: number;
+	    amount_cents?: number;
 	    date?: string;
 	    start_date?: string;
 	    end_date?: string;
@@ -147,7 +147,7 @@ export namespace models {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.description = source["description"];
-	        this.amount = source["amount"];
+	        this.amount_cents = source["amount_cents"];
 	        this.date = source["date"];
 	        this.start_date = source["start_date"];
 	        this.end_date = source["end_date"];
