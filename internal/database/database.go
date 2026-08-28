@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"prisma/internal/models"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -237,6 +238,179 @@ func (r *Repository) GetFinancialMetrics(startDate string, endDate string) (mode
 	}
 
 	return metrics, nil
+}
+
+// GetSpendingReport groups active expenses for an inclusive date range.
+func (r *Repository) GetSpendingReport(startDate string, endDate string) (models.SpendingReport, error) {
+	report := models.SpendingReport{
+		StartDate:       startDate,
+		EndDate:         endDate,
+		ByCategory:      []models.ReportGroup{},
+		BySubcategory:   []models.ReportGroup{},
+		ByPaymentMethod: []models.ReportGroup{},
+		ByTag:           []models.ReportGroup{},
+	}
+
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return report, fmt.Errorf("invalid start date %q: %w", startDate, err)
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return report, fmt.Errorf("invalid end date %q: %w", endDate, err)
+	}
+	if start.After(end) {
+		return report, fmt.Errorf("start date must not be after end date")
+	}
+
+	rows, err := r.db.Query(`
+		SELECT t.amount_cents, t.is_paid, t.category, t.subcategory,
+		       t.payment_method, t.tags
+		FROM transactions t
+		INNER JOIN categories c ON c.name = t.category
+		WHERE t.active = 1
+		  AND c.type = -1
+		  AND t.date BETWEEN ? AND ?;
+	`, startDate, endDate)
+	if err != nil {
+		return report, fmt.Errorf("error calculating spending report: %w", err)
+	}
+	defer rows.Close()
+
+	categoryGroups := make(map[string]*models.ReportGroup)
+	subcategoryGroups := make(map[string]*models.ReportGroup)
+	paymentMethodGroups := make(map[string]*models.ReportGroup)
+	tagGroups := make(map[string]*models.ReportGroup)
+
+	for rows.Next() {
+		var (
+			amountCents   int64
+			isPaid        bool
+			category      string
+			subcategory   string
+			paymentMethod string
+			tags          string
+		)
+		if err := rows.Scan(&amountCents, &isPaid, &category, &subcategory, &paymentMethod, &tags); err != nil {
+			return report, fmt.Errorf("error scanning spending report: %w", err)
+		}
+
+		if report.TotalExpensesCents, err = addReportCents(report.TotalExpensesCents, amountCents); err != nil {
+			return report, err
+		}
+		if isPaid {
+			if report.PaidExpensesCents, err = addReportCents(report.PaidExpensesCents, amountCents); err != nil {
+				return report, err
+			}
+		} else if report.PendingExpensesCents, err = addReportCents(report.PendingExpensesCents, amountCents); err != nil {
+			return report, err
+		}
+		report.TransactionCount++
+
+		if err := addReportTransaction(categoryGroups, reportLabel(category, "Uncategorized"), amountCents, isPaid); err != nil {
+			return report, err
+		}
+		if err := addReportTransaction(subcategoryGroups, reportLabel(subcategory, "Unspecified"), amountCents, isPaid); err != nil {
+			return report, err
+		}
+		if err := addReportTransaction(paymentMethodGroups, reportLabel(paymentMethod, "Unspecified"), amountCents, isPaid); err != nil {
+			return report, err
+		}
+
+		transactionTags := uniqueReportTags(tags)
+		if len(transactionTags) == 0 {
+			transactionTags = []string{"Untagged"}
+		}
+		for _, tag := range transactionTags {
+			if err := addReportTransaction(tagGroups, tag, amountCents, isPaid); err != nil {
+				return report, err
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return report, fmt.Errorf("error iterating spending report: %w", err)
+	}
+
+	report.ByCategory = finalizeReportGroups(categoryGroups, report.TotalExpensesCents)
+	report.BySubcategory = finalizeReportGroups(subcategoryGroups, report.TotalExpensesCents)
+	report.ByPaymentMethod = finalizeReportGroups(paymentMethodGroups, report.TotalExpensesCents)
+	report.ByTag = finalizeReportGroups(tagGroups, report.TotalExpensesCents)
+	return report, nil
+}
+
+func addReportCents(current int64, amount int64) (int64, error) {
+	if amount > 0 && current > models.MaxSafeAmountCents-amount {
+		return 0, fmt.Errorf("spending report total exceeds the maximum exact supported value")
+	}
+	if amount < 0 && current < -models.MaxSafeAmountCents-amount {
+		return 0, fmt.Errorf("spending report total exceeds the maximum exact supported value")
+	}
+	return current + amount, nil
+}
+
+func addReportTransaction(groups map[string]*models.ReportGroup, name string, amountCents int64, isPaid bool) error {
+	key := strings.ToLower(name)
+	group, exists := groups[key]
+	if !exists {
+		group = &models.ReportGroup{Name: name}
+		groups[key] = group
+	}
+
+	var err error
+	group.TotalAmountCents, err = addReportCents(group.TotalAmountCents, amountCents)
+	if err != nil {
+		return err
+	}
+	if isPaid {
+		group.PaidAmountCents, err = addReportCents(group.PaidAmountCents, amountCents)
+	} else {
+		group.PendingAmountCents, err = addReportCents(group.PendingAmountCents, amountCents)
+	}
+	if err != nil {
+		return err
+	}
+	group.TransactionCount++
+	return nil
+}
+
+func reportLabel(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func uniqueReportTags(tags string) []string {
+	uniqueTags := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, tag := range strings.Split(tags, ",") {
+		tag = strings.TrimSpace(tag)
+		key := strings.ToLower(tag)
+		if tag == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		uniqueTags = append(uniqueTags, tag)
+	}
+	return uniqueTags
+}
+
+func finalizeReportGroups(groups map[string]*models.ReportGroup, totalExpensesCents int64) []models.ReportGroup {
+	result := make([]models.ReportGroup, 0, len(groups))
+	for _, group := range groups {
+		if totalExpensesCents != 0 {
+			group.PercentageOfExpenses = float64(group.TotalAmountCents) / float64(totalExpensesCents) * 100
+		}
+		result = append(result, *group)
+	}
+	sort.Slice(result, func(i int, j int) bool {
+		if result[i].TotalAmountCents == result[j].TotalAmountCents {
+			return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
+		}
+		return result[i].TotalAmountCents > result[j].TotalAmountCents
+	})
+	return result
 }
 
 // ensureTransactionColumns migrates older databases without relying on ignored

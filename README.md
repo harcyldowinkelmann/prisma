@@ -23,14 +23,13 @@ The focus of this app is not to have thousands of features, but rather to provid
 - **Detailed Entries:** Track descriptions, amounts, dates, subcategories, payment methods, installments, tags, and payment status.
 - **Transaction Management:** Search and filter the complete transaction history, edit active entries, and archive or restore records.
 - **Monthly Metrics:** Review received income, paid and pending expenses, actual and expected balances, income spent, and category totals for any month.
+- **Spending Reports:** Analyze active expenses by category, subcategory, payment method, or tag for any date range, including paid and pending totals and percentage shares.
 - **Custom Settings:** Manage transaction subcategories, payment methods, tags, and columns.
 - **Configurable Currency:** Format monetary values in AUD, BRL, CAD, EUR, GBP, JPY, or USD without changing stored transaction amounts.
 - **Exact Monetary Storage:** Store and calculate transaction values as integer cents to prevent floating-point rounding errors.
 - **Payment Reminders:** Receive Windows notifications for unpaid expenses that are due or overdue, with a locally persisted on/off preference.
 - **Local Persistence:** Store all financial data locally in SQLite and use the application offline.
 - **Lightweight Desktop Application:** Run Prisma as a native Wails application backed by the operating system webview.
-
-The reporting module is still under development.
 
 ### 🛠️ Tech Stack
 

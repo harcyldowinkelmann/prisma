@@ -5,6 +5,7 @@ import (
 	"math"
 	"path/filepath"
 	"prisma/internal/models"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -393,6 +394,119 @@ func TestGetFinancialMetricsValidatesDateRange(t *testing.T) {
 	}
 }
 
+func TestGetSpendingReportGroupsExpensesAcrossAllDimensions(t *testing.T) {
+	repo := newTestRepository(t)
+
+	transactions := []models.Transaction{
+		{
+			UUID: uuid.New(), Description: "Paid rent", AmountCents: 10000,
+			Date: "2026-08-01", Category: "Fixed Expenses", Subcategory: "Housing",
+			PaymentMethod: "Bank Transfer", Tags: "Home, Essential", IsPaid: true, Active: true,
+		},
+		{
+			UUID: uuid.New(), Description: "Pending groceries", AmountCents: 5000,
+			Date: "2026-08-31", Category: "Variable Expenses", Subcategory: "Food",
+			PaymentMethod: "Credit Card", Tags: "Food, essential, FOOD", IsPaid: false, Active: true,
+		},
+		{
+			UUID: uuid.New(), Description: "Expense without details", AmountCents: 2500,
+			Date: "2026-08-15", Category: "Variable Expenses", IsPaid: true, Active: true,
+		},
+		{UUID: uuid.New(), Description: "Income", AmountCents: 99999, Date: "2026-08-10", Category: "Incomes", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Archived", AmountCents: 88888, Date: "2026-08-10", Category: "Fixed Expenses", IsPaid: true, Active: false},
+		{UUID: uuid.New(), Description: "Outside period", AmountCents: 77777, Date: "2026-09-01", Category: "Fixed Expenses", IsPaid: true, Active: true},
+	}
+	for _, transaction := range transactions {
+		saveTestTransaction(t, repo, transaction)
+	}
+
+	categories, err := repo.GetCategories()
+	if err != nil {
+		t.Fatalf("get categories: %v", err)
+	}
+	for _, category := range categories {
+		if category.Name == "Fixed Expenses" {
+			if err := repo.SoftDeleteCategory(category.UUID); err != nil {
+				t.Fatalf("inactivate historical category: %v", err)
+			}
+		}
+	}
+
+	report, err := repo.GetSpendingReport("2026-08-01", "2026-08-31")
+	if err != nil {
+		t.Fatalf("get spending report: %v", err)
+	}
+
+	assertInt64Equal(t, "total expenses", report.TotalExpensesCents, 17500)
+	assertInt64Equal(t, "paid expenses", report.PaidExpensesCents, 12500)
+	assertInt64Equal(t, "pending expenses", report.PendingExpensesCents, 5000)
+	if report.TransactionCount != 3 {
+		t.Fatalf("expected 3 report transactions, got %d", report.TransactionCount)
+	}
+
+	assertReportGroup(t, report.ByCategory, "Fixed Expenses", 10000, 10000, 0, 1, 57.1428571429)
+	assertReportGroup(t, report.ByCategory, "Variable Expenses", 7500, 2500, 5000, 2, 42.8571428571)
+	assertReportGroup(t, report.BySubcategory, "Housing", 10000, 10000, 0, 1, 57.1428571429)
+	assertReportGroup(t, report.BySubcategory, "Food", 5000, 0, 5000, 1, 28.5714285714)
+	assertReportGroup(t, report.BySubcategory, "Unspecified", 2500, 2500, 0, 1, 14.2857142857)
+	assertReportGroup(t, report.ByPaymentMethod, "Bank Transfer", 10000, 10000, 0, 1, 57.1428571429)
+	assertReportGroup(t, report.ByPaymentMethod, "Credit Card", 5000, 0, 5000, 1, 28.5714285714)
+	assertReportGroup(t, report.ByPaymentMethod, "Unspecified", 2500, 2500, 0, 1, 14.2857142857)
+	assertReportGroup(t, report.ByTag, "Essential", 15000, 10000, 5000, 2, 85.7142857143)
+	assertReportGroup(t, report.ByTag, "Home", 10000, 10000, 0, 1, 57.1428571429)
+	assertReportGroup(t, report.ByTag, "Food", 5000, 0, 5000, 1, 28.5714285714)
+	assertReportGroup(t, report.ByTag, "Untagged", 2500, 2500, 0, 1, 14.2857142857)
+
+	if report.ByCategory[0].Name != "Fixed Expenses" {
+		t.Fatalf("expected report groups to be sorted by total, got %#v", report.ByCategory)
+	}
+}
+
+func TestGetSpendingReportReturnsEmptyGroupsAndValidatesDateRange(t *testing.T) {
+	repo := newTestRepository(t)
+
+	report, err := repo.GetSpendingReport("2026-08-01", "2026-08-31")
+	if err != nil {
+		t.Fatalf("get empty spending report: %v", err)
+	}
+	if report.ByCategory == nil || report.BySubcategory == nil || report.ByPaymentMethod == nil || report.ByTag == nil {
+		t.Fatal("expected empty report dimensions to be encoded as arrays")
+	}
+
+	testCases := []struct {
+		name      string
+		startDate string
+		endDate   string
+	}{
+		{name: "invalid start", startDate: "08/01/2026", endDate: "2026-08-31"},
+		{name: "invalid end", startDate: "2026-08-01", endDate: "August 31"},
+		{name: "reversed range", startDate: "2026-08-31", endDate: "2026-08-01"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if _, err := repo.GetSpendingReport(testCase.startDate, testCase.endDate); err == nil {
+				t.Fatal("expected an invalid date range error")
+			}
+		})
+	}
+}
+
+func TestGetSpendingReportRejectsUnsafeAggregate(t *testing.T) {
+	repo := newTestRepository(t)
+	saveTestTransaction(t, repo, models.Transaction{
+		UUID: uuid.New(), Description: "Maximum exact amount", AmountCents: models.MaxSafeAmountCents,
+		Date: "2026-08-01", Category: "Fixed Expenses", IsPaid: true, Active: true,
+	})
+	saveTestTransaction(t, repo, models.Transaction{
+		UUID: uuid.New(), Description: "Overflowing cent", AmountCents: 1,
+		Date: "2026-08-02", Category: "Fixed Expenses", IsPaid: true, Active: true,
+	})
+
+	if _, err := repo.GetSpendingReport("2026-08-01", "2026-08-31"); err == nil {
+		t.Fatal("expected an unsafe aggregate error")
+	}
+}
+
 func TestCurrencySettingPersistsAndRejectsUnsupportedCodes(t *testing.T) {
 	repo := newTestRepository(t)
 
@@ -590,4 +704,30 @@ func assertInt64Equal(t *testing.T, label string, got int64, want int64) {
 	if got != want {
 		t.Errorf("%s: expected %d, got %d", label, want, got)
 	}
+}
+
+func assertReportGroup(
+	t *testing.T,
+	groups []models.ReportGroup,
+	name string,
+	totalCents int64,
+	paidCents int64,
+	pendingCents int64,
+	transactionCount int,
+	percentage float64,
+) {
+	t.Helper()
+	for _, group := range groups {
+		if strings.EqualFold(group.Name, name) {
+			assertInt64Equal(t, name+" total", group.TotalAmountCents, totalCents)
+			assertInt64Equal(t, name+" paid", group.PaidAmountCents, paidCents)
+			assertInt64Equal(t, name+" pending", group.PendingAmountCents, pendingCents)
+			if group.TransactionCount != transactionCount {
+				t.Errorf("%s: expected %d transactions, got %d", name, transactionCount, group.TransactionCount)
+			}
+			assertFloatEqual(t, name+" percentage", group.PercentageOfExpenses, percentage)
+			return
+		}
+	}
+	t.Errorf("expected report group %q in %#v", name, groups)
 }

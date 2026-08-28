@@ -255,6 +255,11 @@ func (a *App) GetFinancialMetrics(startDate string, endDate string) (models.Fina
 	return a.db.GetFinancialMetrics(startDate, endDate)
 }
 
+// GetSpendingReport returns expense breakdowns for an inclusive date range.
+func (a *App) GetSpendingReport(startDate string, endDate string) (models.SpendingReport, error) {
+	return a.db.GetSpendingReport(startDate, endDate)
+}
+
 // Fetches an active Transaction by its UUID
 func (a *App) GetTransactionByID(uuid string) (models.Transaction, error) {
 	return a.db.GetTransactionByID(uuid)

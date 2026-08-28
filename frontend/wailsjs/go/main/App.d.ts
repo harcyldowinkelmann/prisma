@@ -16,6 +16,8 @@ export function GetNotificationsEnabled():Promise<boolean>;
 
 export function GetSettings(arg1:string):Promise<Array<models.SettingItem>>;
 
+export function GetSpendingReport(arg1:string,arg2:string):Promise<models.SpendingReport>;
+
 export function GetTransactionByID(arg1:string):Promise<models.Transaction>;
 
 export function GetTransactions(arg1:models.TransactionFilters):Promise<Array<models.Transaction>>;

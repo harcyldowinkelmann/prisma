@@ -51,11 +51,9 @@
           </v-container>
         </v-window-item>
 
-        <!-- TAB 2: METRICS & REPORTS (Placeholder) -->
+        <!-- TAB 2: METRICS & REPORTS -->
         <v-window-item value="metrics">
-          <v-container class="text-center mt-10">
-            <h2 class="text-disabled">Metrics & Reports Module Coming Soon...</h2>
-          </v-container>
+          <Reports :currency-code="currencyCode" :refresh-key="metricsRefreshKey" />
         </v-window-item>
 
         <!-- TAB 3: ALL TRANSACTIONS -->
@@ -96,6 +94,7 @@ import TransactionModal from './components/TransactionModal.vue';
 import CategoryModal from './components/CategoryModal.vue';
 import Settings from './components/Settings.vue';
 import Transactions from './components/Transactions.vue';
+import Reports from './components/Reports.vue';
 import { ref, onMounted } from 'vue';
 import { GetTransactions, SoftDeleteTransaction, RestoreTransaction, GetCategories, GetCurrencyCode } from '../wailsjs/go/main/App';
 

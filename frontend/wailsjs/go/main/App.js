@@ -30,6 +30,10 @@ export function GetSettings(arg1) {
   return window['go']['main']['App']['GetSettings'](arg1);
 }
 
+export function GetSpendingReport(arg1, arg2) {
+  return window['go']['main']['App']['GetSpendingReport'](arg1, arg2);
+}
+
 export function GetTransactionByID(arg1) {
   return window['go']['main']['App']['GetTransactionByID'](arg1);
 }
