@@ -1,5 +1,6 @@
 package models
 
+// Category represents a transaction column and its balance direction.
 type Category struct {
 	UUID   string `json:"uuid"`
 	Name   string `json:"name"`

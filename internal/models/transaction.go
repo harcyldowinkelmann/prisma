@@ -2,6 +2,7 @@ package models
 
 import "github.com/google/uuid"
 
+// Transaction represents an income or expense stored by Prisma.
 type Transaction struct {
 	UUID          uuid.UUID `json:"id"`
 	Description   string    `json:"description"`
@@ -16,6 +17,7 @@ type Transaction struct {
 	Active        bool      `json:"active"`
 }
 
+// TransactionFilters contains the optional criteria for transaction searches.
 type TransactionFilters struct {
 	Description *string  `json:"description"`
 	Amount      *float64 `json:"amount"`

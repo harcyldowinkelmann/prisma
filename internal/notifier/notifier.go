@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"prisma/internal/database"
+	"prisma/internal/models"
 	"time"
 )
 
@@ -14,16 +15,28 @@ type notificationSender interface {
 	Send(title string, message string) error
 }
 
+type notificationRepository interface {
+	GetNotificationsEnabled() (bool, error)
+	GetPendingNotifications(todayDate string) ([]models.Transaction, error)
+	MarkAsNotified(uuid string, date string) error
+}
+
 // StartBackgroundNotifier checks for unpaid expenses until the application context is canceled.
 // The returned channel is closed after the background worker has stopped.
 func StartBackgroundNotifier(ctx context.Context, repo *database.Repository) <-chan struct{} {
-	done := make(chan struct{})
 	sender := newNotificationSender()
 	if sender == nil {
 		log.Println("Desktop notifications are not supported on this operating system.")
+		done := make(chan struct{})
 		close(done)
 		return done
 	}
+
+	return runBackgroundNotifier(ctx, repo, sender, notificationCheckInterval)
+}
+
+func runBackgroundNotifier(ctx context.Context, repo notificationRepository, sender notificationSender, interval time.Duration) <-chan struct{} {
+	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
@@ -35,7 +48,7 @@ func StartBackgroundNotifier(ctx context.Context, repo *database.Repository) <-c
 		default:
 		}
 
-		checkAndNotify(repo, sender)
+		checkAndNotify(repo, sender, time.Now().Format("2006-01-02"))
 
 		ticker := time.NewTicker(notificationCheckInterval)
 		defer ticker.Stop()
@@ -46,7 +59,7 @@ func StartBackgroundNotifier(ctx context.Context, repo *database.Repository) <-c
 				log.Println("Background notification service stopped.")
 				return
 			case <-ticker.C:
-				checkAndNotify(repo, sender)
+				checkAndNotify(repo, sender, time.Now().Format("2006-01-02"))
 			}
 		}
 	}()
@@ -54,7 +67,7 @@ func StartBackgroundNotifier(ctx context.Context, repo *database.Repository) <-c
 	return done
 }
 
-func checkAndNotify(repo *database.Repository, sender notificationSender) {
+func checkAndNotify(repo notificationRepository, sender notificationSender, todayDate string) {
 	enabled, err := repo.GetNotificationsEnabled()
 	if err != nil {
 		log.Printf("Failed to read notification settings: %v", err)
@@ -64,7 +77,6 @@ func checkAndNotify(repo *database.Repository, sender notificationSender) {
 		return
 	}
 
-	todayDate := time.Now().Format("2006-01-02")
 	pending, err := repo.GetPendingNotifications(todayDate)
 	if err != nil {
 		log.Printf("Failed to fetch pending expenses: %v", err)

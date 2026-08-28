@@ -19,18 +19,21 @@ The focus of this app is not to have thousands of features, but rather to provid
 
 ### ✨ Features (MVP)
 
-* **Metrics Dashboard:** Instantly view your monthly balance (revenue, spending, remaining, and percentages) as soon as you open the app.
-* **Column View:** Organize all transactions into visual columns: `Revenues`, `Fixed Expenses`, and `Variable Expenses`.
-* **Quick Entry:** A simplified modal to add new transactions frictionlessly.
-* **Local Persistence:** All data is saved locally in a SQLite database. Your data is yours, and the app works 100% offline.
-* **Lightweight & Fast:** Built with Go and Wails, the app is a light, native binary without the overhead of an embedded full browser.
+- **Column View:** Organize transactions into customizable income and expense columns.
+- **Detailed Entries:** Track descriptions, amounts, dates, subcategories, payment methods, installments, tags, and payment status.
+- **Custom Settings:** Manage transaction subcategories, payment methods, tags, and columns.
+- **Payment Reminders:** Receive Windows notifications for unpaid expenses that are due or overdue, with a locally persisted on/off preference.
+- **Local Persistence:** Store all financial data locally in SQLite and use the application offline.
+- **Lightweight Desktop Application:** Run Prisma as a native Wails application backed by the operating system webview.
+
+The metrics dashboard and full transaction report are still under development.
 
 ### 🛠️ Tech Stack
 
-* **Backend (Logic):** Go
-* **Frontend (UI):** Vue.js
-* **Desktop Framework:** Wails (v2)
-* **Database:** SQLite (using the `mattn/go-sqlite3` driver)
+- **Backend:** Go
+- **Frontend:** Vue.js and Vuetify
+- **Desktop Framework:** Wails v2
+- **Database:** SQLite using the pure-Go `modernc.org/sqlite` driver
 
 ### 🚀 Getting Started
 
@@ -42,23 +45,26 @@ You must have [Go](https://go.dev/doc/install), [Node.js/NPM](https://nodejs.org
 
 #### Installation and Execution
 
-1.  Clone the repository:
-    ```bash
-    git clone [https://github.com/harcyldowinkelmann/prisma.git](https://github.com/harcyldowinkelmann/prisma.git)
-    cd prisma
-    ```
+1. Clone the repository:
 
-2.  Install frontend dependencies:
-    ```bash
-    cd frontend
-    npm install
-    cd ..
-    ```
+   ```bash
+   git clone https://github.com/harcyldowinkelmann/prisma.git
+   cd prisma
+   ```
 
-3.  Run the app in development mode:
-    ```bash
-    wails dev
-    ```
+2. Install frontend dependencies:
+
+   ```bash
+   cd frontend
+   npm install
+   cd ..
+   ```
+
+3. Run the app in development mode:
+
+   ```bash
+   wails dev
+   ```
 
 #### Building
 
@@ -66,3 +72,20 @@ To compile a native binary for your platform (Windows, macOS, or Linux):
 
 ```bash
 wails build
+```
+
+### Testing
+
+Run the backend tests and static analysis from the project root:
+
+```bash
+go test ./...
+go vet ./...
+```
+
+Build the frontend to verify the Vue application:
+
+```bash
+cd frontend
+npm run build
+```
