@@ -5,6 +5,7 @@ import (
 	"math"
 	"path/filepath"
 	"prisma/internal/models"
+	"prisma/internal/statement"
 	"strings"
 	"testing"
 
@@ -593,6 +594,149 @@ func TestGetTransactionsSupportsArchiveStatusAndDateFilters(t *testing.T) {
 	}
 	if len(amountFiltered) != 1 || amountFiltered[0].Description != "Paid August expense" {
 		t.Fatalf("unexpected exact cent filter results: %#v", amountFiltered)
+	}
+}
+
+func TestStatementImportReconcilesMatchesImportsRowsAndPreventsDuplicates(t *testing.T) {
+	repo := newTestRepository(t)
+	existingID := uuid.New()
+	saveTestTransaction(t, repo, models.Transaction{
+		UUID: existingID, Description: "Recorded rent", AmountCents: 10000,
+		Date: "2026-08-27", Category: "Fixed Expenses", IsPaid: false, Active: true,
+	})
+
+	entries := []models.StatementEntry{
+		{
+			RowNumber: 2, Date: "2026-08-27", Description: "BANK RENT", AmountCents: 10000,
+			Type: -1, Occurrence: 1,
+		},
+		{
+			RowNumber: 3, Date: "2026-08-28", Description: "SALARY", AmountCents: 250000,
+			Type: 1, Occurrence: 1,
+		},
+	}
+	for index := range entries {
+		entries[index].Fingerprint = statement.Fingerprint(
+			entries[index].Date,
+			entries[index].Description,
+			entries[index].Type,
+			entries[index].AmountCents,
+			entries[index].Occurrence,
+		)
+	}
+
+	preview, err := repo.PrepareStatementPreview(entries)
+	if err != nil {
+		t.Fatalf("prepare statement preview: %v", err)
+	}
+	if preview.Rows[0].Action != "reconcile" || preview.Rows[0].MatchedTransactionID != existingID.String() {
+		t.Fatalf("expected unique existing match, got %#v", preview.Rows[0])
+	}
+	if preview.Rows[1].Action != "import" {
+		t.Fatalf("expected unmatched statement row to be imported, got %#v", preview.Rows[1])
+	}
+
+	result, err := repo.ImportStatementRows(preview.Rows, models.StatementImportOptions{
+		IncomeCategory: "Incomes", ExpenseCategory: "Variable Expenses",
+		Subcategory: "Imported", PaymentMethod: "Bank Statement", Tags: "statement",
+	})
+	if err != nil {
+		t.Fatalf("import statement rows: %v", err)
+	}
+	if result.ReconciledCount != 1 || result.ImportedCount != 1 || result.SkippedCount != 0 {
+		t.Fatalf("unexpected import result: %#v", result)
+	}
+
+	existing, err := repo.GetTransactionByID(existingID.String())
+	if err != nil {
+		t.Fatalf("get reconciled transaction: %v", err)
+	}
+	if !existing.Reconciled || !existing.IsPaid {
+		t.Fatal("expected the matched transaction to be reconciled and marked as paid")
+	}
+	all, err := repo.GetTransactions(models.TransactionFilters{})
+	if err != nil {
+		t.Fatalf("get transactions after import: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected existing and imported transactions, got %d", len(all))
+	}
+	var imported models.Transaction
+	for _, transaction := range all {
+		if transaction.UUID != existingID {
+			imported = transaction
+		}
+	}
+	if imported.Description != "SALARY" || imported.Category != "Incomes" || !imported.IsPaid || !imported.Reconciled {
+		t.Fatalf("unexpected imported transaction: %#v", imported)
+	}
+
+	duplicatePreview, err := repo.PrepareStatementPreview(entries)
+	if err != nil {
+		t.Fatalf("prepare duplicate preview: %v", err)
+	}
+	for _, row := range duplicatePreview.Rows {
+		if !row.Duplicate || row.Action != "skip" {
+			t.Fatalf("expected previously processed row to be skipped: %#v", row)
+		}
+	}
+	duplicateResult, err := repo.ImportStatementRows(duplicatePreview.Rows, models.StatementImportOptions{})
+	if err != nil {
+		t.Fatalf("repeat statement import: %v", err)
+	}
+	if duplicateResult.SkippedCount != 2 || duplicateResult.ImportedCount != 0 || duplicateResult.ReconciledCount != 0 {
+		t.Fatalf("unexpected duplicate import result: %#v", duplicateResult)
+	}
+}
+
+func TestReconciliationStateCanBeFilteredAndRequiresActiveTransaction(t *testing.T) {
+	repo := newTestRepository(t)
+	activeID := uuid.New()
+	archivedID := uuid.New()
+	saveTestTransaction(t, repo, models.Transaction{
+		UUID: activeID, Description: "Active expense", AmountCents: 1000,
+		Date: "2026-08-27", Category: "Fixed Expenses", Active: true,
+	})
+	saveTestTransaction(t, repo, models.Transaction{
+		UUID: archivedID, Description: "Archived expense", AmountCents: 2000,
+		Date: "2026-08-27", Category: "Fixed Expenses", Active: false,
+	})
+
+	if err := repo.SetTransactionReconciled(activeID.String(), true); err != nil {
+		t.Fatalf("reconcile active transaction: %v", err)
+	}
+	if err := repo.SetTransactionReconciled(archivedID.String(), true); err == nil {
+		t.Fatal("expected archived transaction reconciliation to fail")
+	}
+	reconciled := true
+	filtered, err := repo.GetTransactions(models.TransactionFilters{Reconciled: &reconciled})
+	if err != nil {
+		t.Fatalf("filter reconciled transactions: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].UUID != activeID {
+		t.Fatalf("unexpected reconciled filter result: %#v", filtered)
+	}
+	entry := models.StatementEntry{
+		RowNumber: 2, Date: "2026-08-27", Description: "BANK ACTIVE EXPENSE",
+		AmountCents: 1000, Type: -1, Occurrence: 1,
+	}
+	entry.Fingerprint = statement.Fingerprint(entry.Date, entry.Description, entry.Type, entry.AmountCents, entry.Occurrence)
+	preview, err := repo.PrepareStatementPreview([]models.StatementEntry{entry})
+	if err != nil {
+		t.Fatalf("prepare manually reconciled match: %v", err)
+	}
+	if preview.Rows[0].Action != "skip" || !preview.Rows[0].MatchedReconciled || preview.Rows[0].MatchedTransactionID != activeID.String() {
+		t.Fatalf("expected a manually reconciled match to be skipped by default: %#v", preview.Rows[0])
+	}
+	if err := repo.SetTransactionReconciled(activeID.String(), false); err != nil {
+		t.Fatalf("unreconcile active transaction: %v", err)
+	}
+	stored, err := repo.GetTransactionByID(activeID.String())
+	if err != nil {
+		t.Fatalf("get unreconciled transaction: %v", err)
+	}
+	if stored.Reconciled {
+		t.Fatal("expected manual reconciliation state to be removed")
 	}
 }
 

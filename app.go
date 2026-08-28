@@ -7,6 +7,7 @@ import (
 	"prisma/internal/database"
 	"prisma/internal/models"
 	"prisma/internal/notifier"
+	"prisma/internal/statement"
 	"strconv"
 	"strings"
 	"time"
@@ -202,6 +203,14 @@ func (a *App) RestoreTransaction(uuid string) (string, error) {
 	return "Transaction restored successfully!", nil
 }
 
+// SetTransactionReconciled changes whether a transaction matches a bank statement.
+func (a *App) SetTransactionReconciled(transactionUUID string, reconciled bool) error {
+	if _, err := uuid.Parse(transactionUUID); err != nil {
+		return fmt.Errorf("invalid transaction UUID: %w", err)
+	}
+	return a.db.SetTransactionReconciled(transactionUUID, reconciled)
+}
+
 // --- SETTINGS CRUD BRIDGE ---
 
 func (a *App) GetSettings(tableName string) ([]models.SettingItem, error) {
@@ -269,6 +278,30 @@ func (a *App) GetTransactionByID(uuid string) (models.Transaction, error) {
 // Ex: { "description": "market", "category": "Variable Expenses" }
 func (a *App) GetTransactions(filters models.TransactionFilters) ([]models.Transaction, error) {
 	return a.db.GetTransactions(filters)
+}
+
+// InspectStatementCSV returns columns and detected mappings without changing data.
+func (a *App) InspectStatementCSV(content string, delimiter string, hasHeader bool) (models.StatementInspection, error) {
+	return statement.Inspect(content, delimiter, hasHeader)
+}
+
+// PreviewStatementCSV parses rows and identifies duplicates or reconciliation matches.
+func (a *App) PreviewStatementCSV(content string, options models.StatementParseOptions) (models.StatementPreview, error) {
+	parsed, err := statement.Parse(content, options)
+	if err != nil {
+		return parsed, err
+	}
+	prepared, err := a.db.PrepareStatementPreview(parsed.Rows)
+	if err != nil {
+		return parsed, err
+	}
+	prepared.Errors = parsed.Errors
+	return prepared, nil
+}
+
+// ImportStatementRows applies the user-confirmed preview atomically.
+func (a *App) ImportStatementRows(entries []models.StatementEntry, options models.StatementImportOptions) (models.StatementImportResult, error) {
+	return a.db.ImportStatementRows(entries, options)
 }
 
 // --- CATEGORIES BRIDGE ---

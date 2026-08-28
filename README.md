@@ -22,6 +22,8 @@ The focus of this app is not to have thousands of features, but rather to provid
 - **Column View:** Organize transactions into customizable income and expense columns.
 - **Detailed Entries:** Track descriptions, amounts, dates, subcategories, payment methods, installments, tags, and payment status.
 - **Transaction Management:** Search and filter the complete transaction history, edit active entries, and archive or restore records.
+- **Bank Reconciliation:** Mark transactions as reconciled, filter by reconciliation state, and automatically mark matched statement entries as paid.
+- **CSV Statement Import:** Preview localized bank statement files, map signed or debit/credit columns, match existing transactions, and prevent duplicate imports.
 - **Monthly Metrics:** Review received income, paid and pending expenses, actual and expected balances, income spent, and category totals for any month.
 - **Spending Reports:** Analyze active expenses by category, subcategory, payment method, or tag for any date range, including paid and pending totals and percentage shares.
 - **Custom Settings:** Manage transaction subcategories, payment methods, tags, and columns.

@@ -42,8 +42,20 @@ export function GetTransactions(arg1) {
   return window['go']['main']['App']['GetTransactions'](arg1);
 }
 
+export function ImportStatementRows(arg1, arg2) {
+  return window['go']['main']['App']['ImportStatementRows'](arg1, arg2);
+}
+
 export function InactivateSetting(arg1, arg2) {
   return window['go']['main']['App']['InactivateSetting'](arg1, arg2);
+}
+
+export function InspectStatementCSV(arg1, arg2, arg3) {
+  return window['go']['main']['App']['InspectStatementCSV'](arg1, arg2, arg3);
+}
+
+export function PreviewStatementCSV(arg1, arg2) {
+  return window['go']['main']['App']['PreviewStatementCSV'](arg1, arg2);
 }
 
 export function RestoreTransaction(arg1) {
@@ -60,6 +72,10 @@ export function SetCurrencyCode(arg1) {
 
 export function SetNotificationsEnabled(arg1) {
   return window['go']['main']['App']['SetNotificationsEnabled'](arg1);
+}
+
+export function SetTransactionReconciled(arg1, arg2) {
+  return window['go']['main']['App']['SetTransactionReconciled'](arg1, arg2);
 }
 
 export function SoftDeleteCategory(arg1) {

@@ -65,6 +65,7 @@
             @request-edit="openEditModal"
             @request-archive="inactivateTransaction"
             @request-restore="restoreTransaction"
+            @data-changed="loadAllData"
           />
         </v-window-item>
 

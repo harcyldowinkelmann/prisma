@@ -168,6 +168,181 @@ export namespace models {
 		    return a;
 		}
 	}
+	export class StatementEntry {
+	    row_number: number;
+	    date: string;
+	    description: string;
+	    amount_cents: number;
+	    type: number;
+	    occurrence: number;
+	    fingerprint: string;
+	    duplicate: boolean;
+	    matched_transaction_id: string;
+	    matched_description: string;
+	    matched_reconciled: boolean;
+	    action: string;
+
+	    static createFrom(source: any = {}) {
+	        return new StatementEntry(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.row_number = source["row_number"];
+	        this.date = source["date"];
+	        this.description = source["description"];
+	        this.amount_cents = source["amount_cents"];
+	        this.type = source["type"];
+	        this.occurrence = source["occurrence"];
+	        this.fingerprint = source["fingerprint"];
+	        this.duplicate = source["duplicate"];
+	        this.matched_transaction_id = source["matched_transaction_id"];
+	        this.matched_description = source["matched_description"];
+	        this.matched_reconciled = source["matched_reconciled"];
+	        this.action = source["action"];
+	    }
+	}
+	export class StatementImportOptions {
+	    income_category: string;
+	    expense_category: string;
+	    subcategory: string;
+	    payment_method: string;
+	    tags: string;
+
+	    static createFrom(source: any = {}) {
+	        return new StatementImportOptions(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.income_category = source["income_category"];
+	        this.expense_category = source["expense_category"];
+	        this.subcategory = source["subcategory"];
+	        this.payment_method = source["payment_method"];
+	        this.tags = source["tags"];
+	    }
+	}
+	export class StatementImportResult {
+	    imported_count: number;
+	    reconciled_count: number;
+	    skipped_count: number;
+
+	    static createFrom(source: any = {}) {
+	        return new StatementImportResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.imported_count = source["imported_count"];
+	        this.reconciled_count = source["reconciled_count"];
+	        this.skipped_count = source["skipped_count"];
+	    }
+	}
+	export class StatementInspection {
+	    headers: string[];
+	    sample_rows: string[][];
+	    delimiter: string;
+	    detected_date_column: number;
+	    detected_description_column: number;
+	    detected_amount_column: number;
+	    detected_debit_column: number;
+	    detected_credit_column: number;
+	    detected_date_format: string;
+
+	    static createFrom(source: any = {}) {
+	        return new StatementInspection(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.headers = source["headers"];
+	        this.sample_rows = source["sample_rows"];
+	        this.delimiter = source["delimiter"];
+	        this.detected_date_column = source["detected_date_column"];
+	        this.detected_description_column = source["detected_description_column"];
+	        this.detected_amount_column = source["detected_amount_column"];
+	        this.detected_debit_column = source["detected_debit_column"];
+	        this.detected_credit_column = source["detected_credit_column"];
+	        this.detected_date_format = source["detected_date_format"];
+	    }
+	}
+	export class StatementParseOptions {
+	    delimiter: string;
+	    has_header: boolean;
+	    date_column: number;
+	    description_column: number;
+	    amount_mode: string;
+	    amount_column: number;
+	    debit_column: number;
+	    credit_column: number;
+	    date_format: string;
+	    decimal_separator: string;
+
+	    static createFrom(source: any = {}) {
+	        return new StatementParseOptions(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.delimiter = source["delimiter"];
+	        this.has_header = source["has_header"];
+	        this.date_column = source["date_column"];
+	        this.description_column = source["description_column"];
+	        this.amount_mode = source["amount_mode"];
+	        this.amount_column = source["amount_column"];
+	        this.debit_column = source["debit_column"];
+	        this.credit_column = source["credit_column"];
+	        this.date_format = source["date_format"];
+	        this.decimal_separator = source["decimal_separator"];
+	    }
+	}
+	export class StatementRowError {
+	    row_number: number;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new StatementRowError(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.row_number = source["row_number"];
+	        this.message = source["message"];
+	    }
+	}
+	export class StatementPreview {
+	    rows: StatementEntry[];
+	    errors: StatementRowError[];
+
+	    static createFrom(source: any = {}) {
+	        return new StatementPreview(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rows = this.convertValues(source["rows"], StatementEntry);
+	        this.errors = this.convertValues(source["errors"], StatementRowError);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
 	export class Transaction {
 	    id: number[];
 	    description: string;
@@ -179,6 +354,7 @@ export namespace models {
 	    installments: string;
 	    tags: string;
 	    is_paid: boolean;
+	    reconciled: boolean;
 	    active: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -197,6 +373,7 @@ export namespace models {
 	        this.installments = source["installments"];
 	        this.tags = source["tags"];
 	        this.is_paid = source["is_paid"];
+	        this.reconciled = source["reconciled"];
 	        this.active = source["active"];
 	    }
 	}
@@ -208,6 +385,7 @@ export namespace models {
 	    end_date?: string;
 	    category?: string;
 	    is_paid?: boolean;
+	    reconciled?: boolean;
 	    include_archived: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -223,6 +401,7 @@ export namespace models {
 	        this.end_date = source["end_date"];
 	        this.category = source["category"];
 	        this.is_paid = source["is_paid"];
+	        this.reconciled = source["reconciled"];
 	        this.include_archived = source["include_archived"];
 	    }
 	}

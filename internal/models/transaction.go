@@ -17,6 +17,7 @@ type Transaction struct {
 	Installments  string    `json:"installments"`
 	Tags          string    `json:"tags"`
 	IsPaid        bool      `json:"is_paid"`
+	Reconciled    bool      `json:"reconciled"`
 	Active        bool      `json:"active"`
 }
 
@@ -29,6 +30,7 @@ type TransactionFilters struct {
 	EndDate         *string `json:"end_date"`
 	Category        *string `json:"category"`
 	IsPaid          *bool   `json:"is_paid"`
+	Reconciled      *bool   `json:"reconciled"`
 	IncludeArchived bool    `json:"include_archived"`
 }
 

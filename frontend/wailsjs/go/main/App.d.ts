@@ -22,7 +22,13 @@ export function GetTransactionByID(arg1:string):Promise<models.Transaction>;
 
 export function GetTransactions(arg1:models.TransactionFilters):Promise<Array<models.Transaction>>;
 
+export function ImportStatementRows(arg1:Array<models.StatementEntry>,arg2:models.StatementImportOptions):Promise<models.StatementImportResult>;
+
 export function InactivateSetting(arg1:string,arg2:string):Promise<void>;
+
+export function InspectStatementCSV(arg1:string,arg2:string,arg3:boolean):Promise<models.StatementInspection>;
+
+export function PreviewStatementCSV(arg1:string,arg2:models.StatementParseOptions):Promise<models.StatementPreview>;
 
 export function RestoreTransaction(arg1:string):Promise<string>;
 
@@ -31,6 +37,8 @@ export function SaveTransaction(arg1:string,arg2:string,arg3:string,arg4:string,
 export function SetCurrencyCode(arg1:string):Promise<void>;
 
 export function SetNotificationsEnabled(arg1:boolean):Promise<void>;
+
+export function SetTransactionReconciled(arg1:string,arg2:boolean):Promise<void>;
 
 export function SoftDeleteCategory(arg1:string):Promise<void>;
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"prisma/internal/models"
+	"prisma/internal/statement"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,6 +46,8 @@ var transactionColumnMigrations = []columnMigration{
 	{name: "installments", definition: "TEXT DEFAULT ''"},
 	{name: "tags", definition: "TEXT DEFAULT ''"},
 	{name: "is_paid", definition: "INTEGER NOT NULL DEFAULT 1"},
+	{name: "reconciled", definition: "INTEGER NOT NULL DEFAULT 0"},
+	{name: "import_fingerprint", definition: "TEXT NOT NULL DEFAULT ''"},
 	{name: "notified_at", definition: "TEXT DEFAULT ''"},
 }
 
@@ -104,6 +107,8 @@ func (r *Repository) initTables() error {
 			installments TEXT DEFAULT '',
 			tags TEXT DEFAULT '',
 			is_paid INTEGER NOT NULL DEFAULT 1,
+			reconciled INTEGER NOT NULL DEFAULT 0,
+			import_fingerprint TEXT NOT NULL DEFAULT '',
 			notified_at TEXT DEFAULT '',
 			active INTEGER NOT NULL DEFAULT 1
 		);
@@ -133,6 +138,13 @@ func (r *Repository) initTables() error {
 	}
 	if err := r.migrateTransactionAmounts(); err != nil {
 		return err
+	}
+	if _, err := r.db.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_import_fingerprint
+		ON transactions(import_fingerprint)
+		WHERE import_fingerprint != '';
+	`); err != nil {
+		return fmt.Errorf("error creating statement import index: %w", err)
 	}
 
 	// Seed default categories if none exist
@@ -503,6 +515,8 @@ func (r *Repository) migrateTransactionAmounts() error {
 			installments TEXT DEFAULT '',
 			tags TEXT DEFAULT '',
 			is_paid INTEGER NOT NULL DEFAULT 1,
+			reconciled INTEGER NOT NULL DEFAULT 0,
+			import_fingerprint TEXT NOT NULL DEFAULT '',
 			notified_at TEXT DEFAULT '',
 			active INTEGER NOT NULL DEFAULT 1
 		);
@@ -513,10 +527,12 @@ func (r *Repository) migrateTransactionAmounts() error {
 	copyQuery := fmt.Sprintf(`
 		INSERT INTO transactions_amount_migration (
 			uuid, description, amount_cents, date, category, subcategory,
-			payment_method, installments, tags, is_paid, notified_at, active
+			payment_method, installments, tags, is_paid, reconciled,
+			import_fingerprint, notified_at, active
 		)
 		SELECT uuid, description, %s, date, category, subcategory,
-		       payment_method, installments, tags, is_paid, notified_at, active
+		       payment_method, installments, tags, is_paid, reconciled,
+		       import_fingerprint, notified_at, active
 		FROM transactions;
 	`, amountExpression)
 	if _, err := tx.Exec(copyQuery); err != nil {
@@ -588,11 +604,11 @@ func (r *Repository) SaveTransaction(t models.Transaction) error {
 		return err
 	}
 	query := `
-		INSERT INTO transactions (uuid, description, amount_cents, date, category, subcategory, payment_method, installments, tags, is_paid, active)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO transactions (uuid, description, amount_cents, date, category, subcategory, payment_method, installments, tags, is_paid, reconciled, active)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.Exec(query, t.UUID, t.Description, t.AmountCents, t.Date, t.Category, t.Subcategory, t.PaymentMethod, t.Installments, t.Tags, t.IsPaid, t.Active)
+	_, err := r.db.Exec(query, t.UUID, t.Description, t.AmountCents, t.Date, t.Category, t.Subcategory, t.PaymentMethod, t.Installments, t.Tags, t.IsPaid, t.Reconciled, t.Active)
 	if err != nil {
 		return fmt.Errorf("error inserting transaction: %w", err)
 	}
@@ -616,6 +632,7 @@ func (r *Repository) UpdateTransaction(t models.Transaction) error {
 		    installments = ?,
 		    tags = ?,
 		    is_paid = ?,
+		    reconciled = 0,
 		    notified_at = ''
 		WHERE uuid = ? AND active = 1;
 	`
@@ -704,10 +721,36 @@ func (r *Repository) RestoreTransaction(uuid string) error {
 	return nil
 }
 
+// SetTransactionReconciled updates the statement reconciliation state.
+func (r *Repository) SetTransactionReconciled(transactionUUID string, reconciled bool) error {
+	result, err := r.db.Exec(
+		`UPDATE transactions
+		 SET reconciled = ?,
+		     is_paid = CASE WHEN ? = 1 THEN 1 ELSE is_paid END,
+		     notified_at = CASE WHEN ? = 1 THEN '' ELSE notified_at END
+		 WHERE uuid = ? AND active = 1;`,
+		reconciled,
+		reconciled,
+		reconciled,
+		transactionUUID,
+	)
+	if err != nil {
+		return fmt.Errorf("error updating reconciliation state: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error verifying reconciliation state: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("no active transaction found with UUID: %s", transactionUUID)
+	}
+	return nil
+}
+
 // Fetches active transactions based on optional filters
 func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]models.Transaction, error) {
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString("SELECT uuid, description, amount_cents, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE 1 = 1")
+	queryBuilder.WriteString("SELECT uuid, description, amount_cents, date, category, subcategory, payment_method, installments, tags, is_paid, reconciled, active FROM transactions WHERE 1 = 1")
 
 	// args are the values for the '?' placeholders
 	var args []interface{}
@@ -751,6 +794,10 @@ func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]model
 		queryBuilder.WriteString(" AND is_paid = ?")
 		args = append(args, *filters.IsPaid)
 	}
+	if filters.Reconciled != nil {
+		queryBuilder.WriteString(" AND reconciled = ?")
+		args = append(args, *filters.Reconciled)
+	}
 
 	queryBuilder.WriteString(" ORDER BY date DESC, description ASC;")
 
@@ -763,13 +810,246 @@ func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]model
 	return r.scanTransactions(rows)
 }
 
+// PrepareStatementPreview identifies previously imported rows and unique matches.
+func (r *Repository) PrepareStatementPreview(entries []models.StatementEntry) (models.StatementPreview, error) {
+	preview := models.StatementPreview{Rows: make([]models.StatementEntry, 0, len(entries)), Errors: []models.StatementRowError{}}
+	for _, entry := range entries {
+		var duplicateCount int
+		if err := r.db.QueryRow(
+			"SELECT COUNT(*) FROM transactions WHERE import_fingerprint = ?;",
+			entry.Fingerprint,
+		).Scan(&duplicateCount); err != nil {
+			return preview, fmt.Errorf("error checking imported statement row: %w", err)
+		}
+		if duplicateCount > 0 {
+			entry.Duplicate = true
+			entry.Action = "skip"
+			preview.Rows = append(preview.Rows, entry)
+			continue
+		}
+
+		matchRows, err := r.db.Query(`
+			SELECT t.uuid, t.description
+			FROM transactions t
+			INNER JOIN categories c ON c.name = t.category
+			WHERE t.active = 1
+			  AND t.reconciled = 0
+			  AND t.date = ?
+			  AND t.amount_cents = ?
+			  AND c.type = ?
+			ORDER BY t.uuid
+			LIMIT 2;
+		`, entry.Date, entry.AmountCents, entry.Type)
+		if err != nil {
+			return preview, fmt.Errorf("error finding statement match: %w", err)
+		}
+		type match struct {
+			id          string
+			description string
+		}
+		matches := make([]match, 0, 2)
+		for matchRows.Next() {
+			var candidate match
+			if err := matchRows.Scan(&candidate.id, &candidate.description); err != nil {
+				matchRows.Close()
+				return preview, fmt.Errorf("error scanning statement match: %w", err)
+			}
+			matches = append(matches, candidate)
+		}
+		if err := matchRows.Err(); err != nil {
+			matchRows.Close()
+			return preview, fmt.Errorf("error iterating statement matches: %w", err)
+		}
+		if err := matchRows.Close(); err != nil {
+			return preview, fmt.Errorf("error closing statement matches: %w", err)
+		}
+		if len(matches) == 1 {
+			entry.MatchedTransactionID = matches[0].id
+			entry.MatchedDescription = matches[0].description
+			entry.Action = "reconcile"
+		} else {
+			entry.Action = "import"
+		}
+		if len(matches) == 0 {
+			reconciledRows, err := r.db.Query(`
+				SELECT t.uuid, t.description
+				FROM transactions t
+				INNER JOIN categories c ON c.name = t.category
+				WHERE t.active = 1
+				  AND t.reconciled = 1
+				  AND t.date = ?
+				  AND t.amount_cents = ?
+				  AND c.type = ?
+				ORDER BY t.uuid
+				LIMIT 2;
+			`, entry.Date, entry.AmountCents, entry.Type)
+			if err != nil {
+				return preview, fmt.Errorf("error finding reconciled statement match: %w", err)
+			}
+			reconciledMatches := make([]match, 0, 2)
+			for reconciledRows.Next() {
+				var candidate match
+				if err := reconciledRows.Scan(&candidate.id, &candidate.description); err != nil {
+					reconciledRows.Close()
+					return preview, fmt.Errorf("error scanning reconciled statement match: %w", err)
+				}
+				reconciledMatches = append(reconciledMatches, candidate)
+			}
+			if err := reconciledRows.Err(); err != nil {
+				reconciledRows.Close()
+				return preview, fmt.Errorf("error iterating reconciled statement matches: %w", err)
+			}
+			if err := reconciledRows.Close(); err != nil {
+				return preview, fmt.Errorf("error closing reconciled statement matches: %w", err)
+			}
+			if len(reconciledMatches) == 1 {
+				entry.MatchedTransactionID = reconciledMatches[0].id
+				entry.MatchedDescription = reconciledMatches[0].description
+				entry.MatchedReconciled = true
+				entry.Action = "skip"
+			}
+		}
+		preview.Rows = append(preview.Rows, entry)
+	}
+	return preview, nil
+}
+
+// ImportStatementRows atomically reconciles matches and imports new transactions.
+func (r *Repository) ImportStatementRows(entries []models.StatementEntry, options models.StatementImportOptions) (models.StatementImportResult, error) {
+	result := models.StatementImportResult{}
+	if len(entries) == 0 {
+		return result, fmt.Errorf("select at least one statement row")
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return result, fmt.Errorf("error starting statement import: %w", err)
+	}
+	defer tx.Rollback()
+
+	requiresIncomeCategory := false
+	requiresExpenseCategory := false
+	for _, entry := range entries {
+		if entry.Action == "import" {
+			requiresIncomeCategory = requiresIncomeCategory || entry.Type == 1
+			requiresExpenseCategory = requiresExpenseCategory || entry.Type == -1
+		}
+	}
+	if requiresIncomeCategory {
+		if err := validateImportCategory(tx, options.IncomeCategory, 1); err != nil {
+			return result, err
+		}
+	}
+	if requiresExpenseCategory {
+		if err := validateImportCategory(tx, options.ExpenseCategory, -1); err != nil {
+			return result, err
+		}
+	}
+
+	for _, entry := range entries {
+		if entry.Type != 1 && entry.Type != -1 {
+			return result, fmt.Errorf("statement row %d has an invalid transaction type", entry.RowNumber)
+		}
+		if err := validateAmountCents(entry.AmountCents); err != nil {
+			return result, fmt.Errorf("statement row %d: %w", entry.RowNumber, err)
+		}
+		if _, err := time.Parse("2006-01-02", entry.Date); err != nil {
+			return result, fmt.Errorf("statement row %d has an invalid date", entry.RowNumber)
+		}
+		if strings.TrimSpace(entry.Description) == "" {
+			return result, fmt.Errorf("statement row %d has an empty description", entry.RowNumber)
+		}
+		expectedFingerprint := statement.Fingerprint(entry.Date, entry.Description, entry.Type, entry.AmountCents, entry.Occurrence)
+		if entry.Fingerprint != expectedFingerprint {
+			return result, fmt.Errorf("statement row %d has an invalid fingerprint", entry.RowNumber)
+		}
+
+		var duplicateCount int
+		if err := tx.QueryRow(
+			"SELECT COUNT(*) FROM transactions WHERE import_fingerprint = ?;",
+			entry.Fingerprint,
+		).Scan(&duplicateCount); err != nil {
+			return result, fmt.Errorf("error checking statement duplicate: %w", err)
+		}
+		if duplicateCount > 0 || entry.Action == "skip" {
+			result.SkippedCount++
+			continue
+		}
+
+		switch entry.Action {
+		case "reconcile":
+			if _, err := uuid.Parse(entry.MatchedTransactionID); err != nil {
+				return result, fmt.Errorf("statement row %d has an invalid matched transaction", entry.RowNumber)
+			}
+			updateResult, err := tx.Exec(`
+				UPDATE transactions
+				SET reconciled = 1, is_paid = 1, import_fingerprint = ?, notified_at = ''
+				WHERE uuid = ?
+				  AND active = 1
+				  AND reconciled = 0
+				  AND date = ?
+				  AND amount_cents = ?
+				  AND category IN (SELECT name FROM categories WHERE type = ?);
+			`, entry.Fingerprint, entry.MatchedTransactionID, entry.Date, entry.AmountCents, entry.Type)
+			if err != nil {
+				return result, fmt.Errorf("error reconciling statement row %d: %w", entry.RowNumber, err)
+			}
+			rowsAffected, err := updateResult.RowsAffected()
+			if err != nil || rowsAffected != 1 {
+				return result, fmt.Errorf("the match for statement row %d is no longer available", entry.RowNumber)
+			}
+			result.ReconciledCount++
+		case "import":
+			category := options.ExpenseCategory
+			if entry.Type == 1 {
+				category = options.IncomeCategory
+			}
+			if _, err := tx.Exec(`
+				INSERT INTO transactions (
+					uuid, description, amount_cents, date, category, subcategory,
+					payment_method, installments, tags, is_paid, reconciled,
+					import_fingerprint, active
+				) VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, 1, 1, ?, 1);
+			`, uuid.New(), entry.Description, entry.AmountCents, entry.Date, category,
+				strings.TrimSpace(options.Subcategory), strings.TrimSpace(options.PaymentMethod),
+				strings.TrimSpace(options.Tags), entry.Fingerprint); err != nil {
+				return result, fmt.Errorf("error importing statement row %d: %w", entry.RowNumber, err)
+			}
+			result.ImportedCount++
+		default:
+			return result, fmt.Errorf("statement row %d has an unsupported action: %s", entry.RowNumber, entry.Action)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return result, fmt.Errorf("error committing statement import: %w", err)
+	}
+	return result, nil
+}
+
+func validateImportCategory(tx *sql.Tx, category string, expectedType int) error {
+	category = strings.TrimSpace(category)
+	var count int
+	if err := tx.QueryRow(
+		"SELECT COUNT(*) FROM categories WHERE name = ? AND type = ? AND active = 1;",
+		category,
+		expectedType,
+	).Scan(&count); err != nil {
+		return fmt.Errorf("error validating import category: %w", err)
+	}
+	if count != 1 {
+		return fmt.Errorf("choose an active category for imported %s", map[int]string{1: "income", -1: "expenses"}[expectedType])
+	}
+	return nil
+}
+
 // Fetches an active Transaction by its UUID
 func (r *Repository) GetTransactionByID(uuid string) (models.Transaction, error) {
-	query := "SELECT uuid, description, amount_cents, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE uuid = ? AND active = 1;"
+	query := "SELECT uuid, description, amount_cents, date, category, subcategory, payment_method, installments, tags, is_paid, reconciled, active FROM transactions WHERE uuid = ? AND active = 1;"
 
 	var t models.Transaction
 
-	err := r.db.QueryRow(query, uuid).Scan(&t.UUID, &t.Description, &t.AmountCents, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Active)
+	err := r.db.QueryRow(query, uuid).Scan(&t.UUID, &t.Description, &t.AmountCents, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Reconciled, &t.Active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return t, fmt.Errorf("no active transaction found with the UUID: %s", uuid)
@@ -788,7 +1068,7 @@ func (r *Repository) scanTransactions(rows *sql.Rows) ([]models.Transaction, err
 
 	for rows.Next() {
 		var t models.Transaction
-		if err := rows.Scan(&t.UUID, &t.Description, &t.AmountCents, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Active); err != nil {
+		if err := rows.Scan(&t.UUID, &t.Description, &t.AmountCents, &t.Date, &t.Category, &t.Subcategory, &t.PaymentMethod, &t.Installments, &t.Tags, &t.IsPaid, &t.Reconciled, &t.Active); err != nil {
 			return nil, fmt.Errorf("error scanning row: %w", err)
 		}
 		transactions = append(transactions, t)
@@ -807,7 +1087,7 @@ func (r *Repository) scanTransactions(rows *sql.Rows) ([]models.Transaction, err
 func (r *Repository) GetPendingNotifications(todayDate string) ([]models.Transaction, error) {
 	query := `
 		SELECT t.uuid, t.description, t.amount_cents, t.date, t.category, t.subcategory,
-		       t.payment_method, t.installments, t.tags, t.is_paid, t.active
+		       t.payment_method, t.installments, t.tags, t.is_paid, t.reconciled, t.active
 		FROM transactions t
 		INNER JOIN categories c ON c.name = t.category
 		WHERE t.active = 1

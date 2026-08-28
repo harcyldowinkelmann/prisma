@@ -9,6 +9,9 @@
           </div>
         </div>
         <v-spacer></v-spacer>
+        <v-btn variant="tonal" prepend-icon="mdi-bank-transfer-in" @click="statementDialogOpen = true">
+          Import Statement
+        </v-btn>
         <v-btn color="primary" prepend-icon="mdi-plus" @click="emit('request-add')">
           New Transaction
         </v-btn>
@@ -45,6 +48,18 @@
               variant="outlined"
               density="compact"
               clearable
+              hide-details
+            ></v-select>
+          </v-col>
+          <v-col cols="12" sm="6" md="2">
+            <v-select
+              v-model="selectedReconciliation"
+              :items="reconciliationOptions"
+              item-title="title"
+              item-value="value"
+              label="Reconciliation"
+              variant="outlined"
+              density="compact"
               hide-details
             ></v-select>
           </v-col>
@@ -97,6 +112,9 @@
         <v-alert v-if="errorMessage" type="error" variant="tonal" density="compact" class="mt-3">
           {{ errorMessage }}
         </v-alert>
+        <v-alert v-if="successMessage" type="success" variant="tonal" density="compact" class="mt-3" closable>
+          {{ successMessage }}
+        </v-alert>
       </v-card-text>
 
       <v-progress-linear v-if="loading" indeterminate color="primary"></v-progress-linear>
@@ -110,6 +128,7 @@
             <th>Date</th>
             <th class="text-right">Amount</th>
             <th>Status</th>
+            <th>Reconciliation</th>
             <th class="text-right">Actions</th>
           </tr>
         </thead>
@@ -133,8 +152,22 @@
                 {{ getStatusLabel(transaction) }}
               </v-chip>
             </td>
+            <td>
+              <v-chip :color="transaction.reconciled ? 'primary' : 'grey'" size="small" variant="tonal">
+                {{ transaction.reconciled ? 'Reconciled' : 'Unreconciled' }}
+              </v-chip>
+            </td>
             <td class="text-right text-no-wrap">
               <template v-if="transaction.active">
+                <v-btn
+                  :icon="transaction.reconciled ? 'mdi-bank-remove' : 'mdi-bank-check'"
+                  variant="text"
+                  size="small"
+                  :color="transaction.reconciled ? 'grey' : 'primary'"
+                  :aria-label="transaction.reconciled ? 'Mark as unreconciled' : 'Mark as reconciled'"
+                  :title="transaction.reconciled ? 'Mark as unreconciled' : 'Mark as reconciled'"
+                  @click="toggleReconciliation(transaction)"
+                ></v-btn>
                 <v-btn
                   icon="mdi-pencil"
                   variant="text"
@@ -167,20 +200,28 @@
             </td>
           </tr>
           <tr v-if="!loading && filteredTransactions.length === 0">
-            <td colspan="6" class="text-center text-medium-emphasis py-8">
+            <td colspan="7" class="text-center text-medium-emphasis py-8">
               No transactions match the selected filters.
             </td>
           </tr>
         </tbody>
       </v-table>
     </v-card>
+
+    <StatementImportDialog
+      v-model="statementDialogOpen"
+      :categories="categories"
+      :currency-code="currencyCode"
+      @imported="onStatementImported"
+    />
   </v-container>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { GetCategories, GetTransactions } from '../../wailsjs/go/main/App';
+import { GetCategories, GetTransactions, SetTransactionReconciled } from '../../wailsjs/go/main/App';
 import { formatCurrencyFromCents } from '../utils/currency';
+import StatementImportDialog from './StatementImportDialog.vue';
 
 const props = defineProps({
   currencyCode: {
@@ -193,23 +234,31 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['request-add', 'request-edit', 'request-archive', 'request-restore']);
+const emit = defineEmits(['request-add', 'request-edit', 'request-archive', 'request-restore', 'data-changed']);
 
 const transactions = ref([]);
 const categories = ref([]);
 const search = ref('');
 const selectedCategory = ref(null);
 const selectedStatus = ref('all');
+const selectedReconciliation = ref('all');
 const startDate = ref('');
 const endDate = ref('');
 const loading = ref(false);
 const errorMessage = ref('');
+const successMessage = ref('');
+const statementDialogOpen = ref(false);
 
 const statusOptions = [
   { title: 'All', value: 'all' },
   { title: 'Paid', value: 'paid' },
   { title: 'Pending', value: 'pending' },
   { title: 'Archived', value: 'archived' },
+];
+const reconciliationOptions = [
+  { title: 'All', value: 'all' },
+  { title: 'Reconciled', value: 'reconciled' },
+  { title: 'Unreconciled', value: 'unreconciled' },
 ];
 
 const categoryOptions = computed(() => categories.value.map(category => category.name));
@@ -218,6 +267,7 @@ const hasActiveFilters = computed(() => Boolean(
   search.value
   || selectedCategory.value
   || selectedStatus.value !== 'all'
+  || selectedReconciliation.value !== 'all'
   || startDate.value
   || endDate.value
 ));
@@ -233,6 +283,8 @@ const filteredTransactions = computed(() => {
     if (selectedStatus.value === 'paid' && (!transaction.active || !transaction.is_paid)) return false;
     if (selectedStatus.value === 'pending' && (!transaction.active || transaction.is_paid)) return false;
     if (selectedStatus.value === 'archived' && transaction.active) return false;
+    if (selectedReconciliation.value === 'reconciled' && !transaction.reconciled) return false;
+    if (selectedReconciliation.value === 'unreconciled' && transaction.reconciled) return false;
 
     if (!normalizedSearch) return true;
     return [
@@ -268,6 +320,7 @@ function clearFilters() {
   search.value = '';
   selectedCategory.value = null;
   selectedStatus.value = 'all';
+  selectedReconciliation.value = 'all';
   startDate.value = '';
   endDate.value = '';
 }
@@ -300,6 +353,25 @@ function getTransactionDetails(transaction) {
     transaction.installments,
     transaction.tags,
   ].filter(Boolean).join(' • ');
+}
+
+async function toggleReconciliation(transaction) {
+  errorMessage.value = '';
+  successMessage.value = '';
+  try {
+    await SetTransactionReconciled(transaction.id, !transaction.reconciled);
+    await loadData();
+    emit('data-changed');
+  } catch (error) {
+    console.error('Failed to update reconciliation state:', error);
+    errorMessage.value = 'Could not update the reconciliation state.';
+  }
+}
+
+async function onStatementImported(result) {
+  successMessage.value = `Statement processed: ${result.imported_count} imported, ${result.reconciled_count} reconciled, ${result.skipped_count} skipped.`;
+  await loadData();
+  emit('data-changed');
 }
 
 onMounted(loadData);
