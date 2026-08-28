@@ -21,6 +21,7 @@ The focus of this app is not to have thousands of features, but rather to provid
 
 - **Column View:** Organize transactions into customizable income and expense columns.
 - **Detailed Entries:** Track descriptions, amounts, dates, subcategories, payment methods, installments, tags, and payment status.
+- **Transaction Management:** Search and filter the complete transaction history, edit active entries, and archive or restore records.
 - **Monthly Metrics:** Review received income, paid and pending expenses, actual and expected balances, income spent, and category totals for any month.
 - **Custom Settings:** Manage transaction subcategories, payment methods, tags, and columns.
 - **Configurable Currency:** Format monetary values in AUD, BRL, CAD, EUR, GBP, JPY, or USD without changing stored transaction amounts.
@@ -28,7 +29,7 @@ The focus of this app is not to have thousands of features, but rather to provid
 - **Local Persistence:** Store all financial data locally in SQLite and use the application offline.
 - **Lightweight Desktop Application:** Run Prisma as a native Wails application backed by the operating system webview.
 
-The full transaction report is still under development.
+The reporting module is still under development.
 
 ### 🛠️ Tech Stack
 

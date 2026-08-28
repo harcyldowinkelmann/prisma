@@ -297,6 +297,50 @@ func (r *Repository) SaveTransaction(t models.Transaction) error {
 	return nil
 }
 
+// UpdateTransaction updates an active transaction and resets its reminder state.
+func (r *Repository) UpdateTransaction(t models.Transaction) error {
+	query := `
+		UPDATE transactions
+		SET description = ?,
+		    amount = ?,
+		    date = ?,
+		    category = ?,
+		    subcategory = ?,
+		    payment_method = ?,
+		    installments = ?,
+		    tags = ?,
+		    is_paid = ?,
+		    notified_at = ''
+		WHERE uuid = ? AND active = 1;
+	`
+
+	result, err := r.db.Exec(
+		query,
+		t.Description,
+		t.Amount,
+		t.Date,
+		t.Category,
+		t.Subcategory,
+		t.PaymentMethod,
+		t.Installments,
+		t.Tags,
+		t.IsPaid,
+		t.UUID,
+	)
+	if err != nil {
+		return fmt.Errorf("error updating transaction: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error verifying updated transaction: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("no active transaction found with UUID: %s", t.UUID)
+	}
+	return nil
+}
+
 // Executes a "soft delete" by updating the 'active' field to 0 (false)
 func (r *Repository) SoftDeleteTransaction(uuid string) error {
 	query := `
@@ -324,13 +368,37 @@ func (r *Repository) SoftDeleteTransaction(uuid string) error {
 	return nil
 }
 
+// RestoreTransaction makes an archived transaction active again.
+func (r *Repository) RestoreTransaction(uuid string) error {
+	result, err := r.db.Exec(
+		"UPDATE transactions SET active = 1, notified_at = '' WHERE uuid = ? AND active = 0;",
+		uuid,
+	)
+	if err != nil {
+		return fmt.Errorf("error restoring transaction: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error verifying restored transaction: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("no archived transaction found with UUID: %s", uuid)
+	}
+	return nil
+}
+
 // Fetches active transactions based on optional filters
 func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]models.Transaction, error) {
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString("SELECT uuid, description, amount, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE active = 1")
+	queryBuilder.WriteString("SELECT uuid, description, amount, date, category, subcategory, payment_method, installments, tags, is_paid, active FROM transactions WHERE 1 = 1")
 
 	// args are the values for the '?' placeholders
 	var args []interface{}
+
+	if !filters.IncludeArchived {
+		queryBuilder.WriteString(" AND active = 1")
+	}
 
 	// Filter by Description (using LIKE)
 	if filters.Description != nil && *filters.Description != "" {
@@ -349,14 +417,26 @@ func (r *Repository) GetTransactions(filters models.TransactionFilters) ([]model
 		queryBuilder.WriteString(" AND date = ?")
 		args = append(args, *filters.Date)
 	}
+	if filters.StartDate != nil && *filters.StartDate != "" {
+		queryBuilder.WriteString(" AND date >= ?")
+		args = append(args, *filters.StartDate)
+	}
+	if filters.EndDate != nil && *filters.EndDate != "" {
+		queryBuilder.WriteString(" AND date <= ?")
+		args = append(args, *filters.EndDate)
+	}
 
 	// Filter by Category (exact)
 	if filters.Category != nil && *filters.Category != "" {
 		queryBuilder.WriteString(" AND category = ?")
 		args = append(args, *filters.Category)
 	}
+	if filters.IsPaid != nil {
+		queryBuilder.WriteString(" AND is_paid = ?")
+		args = append(args, *filters.IsPaid)
+	}
 
-	queryBuilder.WriteString(" ORDER BY date DESC;")
+	queryBuilder.WriteString(" ORDER BY date DESC, description ASC;")
 
 	rows, err := r.db.Query(queryBuilder.String(), args...)
 	if err != nil {

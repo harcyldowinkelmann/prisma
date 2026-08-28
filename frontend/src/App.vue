@@ -58,11 +58,16 @@
           </v-container>
         </v-window-item>
 
-        <!-- TAB 3: ALL TRANSACTIONS (Placeholder) -->
+        <!-- TAB 3: ALL TRANSACTIONS -->
         <v-window-item value="transactions">
-          <v-container class="text-center mt-10">
-            <h2 class="text-disabled">Full Transactions List Coming Soon...</h2>
-          </v-container>
+          <Transactions
+            :currency-code="currencyCode"
+            :refresh-key="transactionsRefreshKey"
+            @request-add="openModal"
+            @request-edit="openEditModal"
+            @request-archive="inactivateTransaction"
+            @request-restore="restoreTransaction"
+          />
         </v-window-item>
 
         <!-- TAB 4: SETTINGS -->
@@ -75,6 +80,7 @@
         v-model="isModalOpen"
         :category="selectedCategory"
         :currency-code="currencyCode"
+        :transaction="editingTransaction"
         @saved="onTransactionSaved"
       ></TransactionModal>
 
@@ -89,14 +95,17 @@ import Body from './components/Body.vue';
 import TransactionModal from './components/TransactionModal.vue';
 import CategoryModal from './components/CategoryModal.vue';
 import Settings from './components/Settings.vue';
+import Transactions from './components/Transactions.vue';
 import { ref, onMounted } from 'vue';
-import { GetTransactions, SoftDeleteTransaction, GetCategories, GetCurrencyCode } from '../wailsjs/go/main/App';
+import { GetTransactions, SoftDeleteTransaction, RestoreTransaction, GetCategories, GetCurrencyCode } from '../wailsjs/go/main/App';
 
 const activeTab = ref('dashboard');
 const isModalOpen = ref(false);
 const selectedCategory = ref('');
+const editingTransaction = ref(null);
 const currencyCode = ref('USD');
 const metricsRefreshKey = ref(0);
+const transactionsRefreshKey = ref(0);
 
 const categories = ref([]);
 const transactionsByCategory = ref({});
@@ -111,13 +120,15 @@ function handleScroll(e) {
 }
 
 function openModal(categoryTitle) {
-  selectedCategory.value = categoryTitle;
+  editingTransaction.value = null;
+  selectedCategory.value = categoryTitle || '';
   isModalOpen.value = true;
 }
 
 function openEditModal(item) {
-  // TODO: Create or modify TransactionModal to accept an item to edit
-  alert("Transaction editing will be implemented in the next phase!");
+  editingTransaction.value = item;
+  selectedCategory.value = item.category;
+  isModalOpen.value = true;
 }
 
 async function inactivateTransaction(uuid) {
@@ -143,6 +154,7 @@ async function loadAllData() {
     }
     transactionsByCategory.value = map;
     metricsRefreshKey.value += 1;
+    transactionsRefreshKey.value += 1;
     
     console.log("Data reloaded from SQLite successfully.");
   } catch (err) {
@@ -155,6 +167,18 @@ async function loadCurrency() {
     currencyCode.value = await GetCurrencyCode() || 'USD';
   } catch (err) {
     console.error('Failed to load currency settings:', err);
+  }
+}
+
+async function restoreTransaction(uuid) {
+  if (!confirm('Restore this transaction and include it in the dashboard totals?')) return;
+
+  try {
+    await RestoreTransaction(uuid);
+    await loadAllData();
+  } catch (err) {
+    console.error('Failed to restore transaction', err);
+    alert('Error restoring transaction: ' + err);
   }
 }
 

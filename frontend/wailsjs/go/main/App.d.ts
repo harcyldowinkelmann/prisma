@@ -22,6 +22,8 @@ export function GetTransactions(arg1:models.TransactionFilters):Promise<Array<mo
 
 export function InactivateSetting(arg1:string,arg2:string):Promise<void>;
 
+export function RestoreTransaction(arg1:string):Promise<string>;
+
 export function SaveTransaction(arg1:string,arg2:number,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:boolean):Promise<string>;
 
 export function SetCurrencyCode(arg1:string):Promise<void>;
@@ -35,3 +37,5 @@ export function SoftDeleteTransaction(arg1:string):Promise<string>;
 export function UpdateCategory(arg1:string,arg2:string,arg3:number):Promise<void>;
 
 export function UpdateSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function UpdateTransaction(arg1:string,arg2:string,arg3:number,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:boolean):Promise<string>;

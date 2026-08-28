@@ -19,10 +19,14 @@ type Transaction struct {
 
 // TransactionFilters contains the optional criteria for transaction searches.
 type TransactionFilters struct {
-	Description *string  `json:"description"`
-	Amount      *float64 `json:"amount"`
-	Date        *string  `json:"date"`
-	Category    *string  `json:"category"`
+	Description     *string  `json:"description"`
+	Amount          *float64 `json:"amount"`
+	Date            *string  `json:"date"`
+	StartDate       *string  `json:"start_date"`
+	EndDate         *string  `json:"end_date"`
+	Category        *string  `json:"category"`
+	IsPaid          *bool    `json:"is_paid"`
+	IncludeArchived bool     `json:"include_archived"`
 }
 
 // SettingItem is a generic model for settings like subcategories, payment methods, and tags.

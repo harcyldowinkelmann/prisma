@@ -93,6 +93,33 @@ func (a *App) SaveTransaction(description string, amount float64, date string, c
 	return "Transaction saved successfully!", nil
 }
 
+// UpdateTransaction updates an existing active transaction.
+func (a *App) UpdateTransaction(transactionUUID string, description string, amount float64, date string, category string, subcategory string, paymentMethod string, installments string, tags string, isPaid bool) (string, error) {
+	parsedUUID, err := uuid.Parse(transactionUUID)
+	if err != nil {
+		return "", fmt.Errorf("invalid transaction UUID: %w", err)
+	}
+
+	transaction := models.Transaction{
+		UUID:          parsedUUID,
+		Description:   description,
+		Amount:        amount,
+		Date:          date,
+		Category:      category,
+		Subcategory:   subcategory,
+		PaymentMethod: paymentMethod,
+		Installments:  installments,
+		Tags:          tags,
+		IsPaid:        isPaid,
+		Active:        true,
+	}
+
+	if err := a.db.UpdateTransaction(transaction); err != nil {
+		return "", fmt.Errorf("error updating transaction: %w", err)
+	}
+	return "Transaction updated successfully!", nil
+}
+
 func (a *App) SoftDeleteTransaction(uuid string) (string, error) {
 	if uuid == "" {
 		return "", fmt.Errorf("provided UUID is empty")
@@ -104,6 +131,17 @@ func (a *App) SoftDeleteTransaction(uuid string) (string, error) {
 	}
 
 	return "Transaction archived successfully!", nil
+}
+
+// RestoreTransaction restores an archived transaction.
+func (a *App) RestoreTransaction(uuid string) (string, error) {
+	if uuid == "" {
+		return "", fmt.Errorf("provided UUID is empty")
+	}
+	if err := a.db.RestoreTransaction(uuid); err != nil {
+		return "", err
+	}
+	return "Transaction restored successfully!", nil
 }
 
 // --- SETTINGS CRUD BRIDGE ---

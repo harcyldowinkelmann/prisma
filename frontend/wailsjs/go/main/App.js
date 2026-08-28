@@ -42,6 +42,10 @@ export function InactivateSetting(arg1, arg2) {
   return window['go']['main']['App']['InactivateSetting'](arg1, arg2);
 }
 
+export function RestoreTransaction(arg1) {
+  return window['go']['main']['App']['RestoreTransaction'](arg1);
+}
+
 export function SaveTransaction(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
   return window['go']['main']['App']['SaveTransaction'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
@@ -68,4 +72,8 @@ export function UpdateCategory(arg1, arg2, arg3) {
 
 export function UpdateSetting(arg1, arg2, arg3) {
   return window['go']['main']['App']['UpdateSetting'](arg1, arg2, arg3);
+}
+
+export function UpdateTransaction(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+  return window['go']['main']['App']['UpdateTransaction'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }

@@ -348,6 +348,125 @@ func TestCurrencySettingPersistsAndRejectsUnsupportedCodes(t *testing.T) {
 	}
 }
 
+func TestGetTransactionsSupportsArchiveStatusAndDateFilters(t *testing.T) {
+	repo := newTestRepository(t)
+	transactions := []models.Transaction{
+		{UUID: uuid.New(), Description: "Paid August expense", Amount: 100, Date: "2026-08-10", Category: "Fixed Expenses", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Pending August expense", Amount: 200, Date: "2026-08-20", Category: "Fixed Expenses", IsPaid: false, Active: true},
+		{UUID: uuid.New(), Description: "September expense", Amount: 300, Date: "2026-09-05", Category: "Variable Expenses", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Archived August expense", Amount: 400, Date: "2026-08-15", Category: "Fixed Expenses", IsPaid: true, Active: false},
+	}
+	for _, transaction := range transactions {
+		saveTestTransaction(t, repo, transaction)
+	}
+
+	activeTransactions, err := repo.GetTransactions(models.TransactionFilters{})
+	if err != nil {
+		t.Fatalf("get active transactions: %v", err)
+	}
+	if len(activeTransactions) != 3 {
+		t.Fatalf("expected 3 active transactions, got %d", len(activeTransactions))
+	}
+
+	allTransactions, err := repo.GetTransactions(models.TransactionFilters{IncludeArchived: true})
+	if err != nil {
+		t.Fatalf("get transactions including archived: %v", err)
+	}
+	if len(allTransactions) != 4 {
+		t.Fatalf("expected 4 transactions including archived, got %d", len(allTransactions))
+	}
+
+	category := "Fixed Expenses"
+	startDate := "2026-08-01"
+	endDate := "2026-08-31"
+	isPaid := true
+	filtered, err := repo.GetTransactions(models.TransactionFilters{
+		Category:        &category,
+		StartDate:       &startDate,
+		EndDate:         &endDate,
+		IsPaid:          &isPaid,
+		IncludeArchived: true,
+	})
+	if err != nil {
+		t.Fatalf("get filtered transactions: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 paid August fixed expenses including archived, got %d", len(filtered))
+	}
+}
+
+func TestUpdateArchiveAndRestoreTransaction(t *testing.T) {
+	repo := newTestRepository(t)
+	transactionID := uuid.New()
+	saveTestTransaction(t, repo, models.Transaction{
+		UUID: transactionID, Description: "Original expense", Amount: 50,
+		Date: "2026-08-10", Category: "Fixed Expenses", Active: true,
+	})
+	if err := repo.MarkAsNotified(transactionID.String(), "2026-08-10"); err != nil {
+		t.Fatalf("mark original transaction as notified: %v", err)
+	}
+
+	updated := models.Transaction{
+		UUID:          transactionID,
+		Description:   "Updated expense",
+		Amount:        75.25,
+		Date:          "2026-08-12",
+		Category:      "Variable Expenses",
+		Subcategory:   "Food",
+		PaymentMethod: "Credit Card",
+		Installments:  "1 of 3",
+		Tags:          "#test, #updated",
+		IsPaid:        true,
+		Active:        true,
+	}
+	if err := repo.UpdateTransaction(updated); err != nil {
+		t.Fatalf("update transaction: %v", err)
+	}
+
+	stored, err := repo.GetTransactionByID(transactionID.String())
+	if err != nil {
+		t.Fatalf("get updated transaction: %v", err)
+	}
+	if stored.Description != updated.Description ||
+		stored.Amount != updated.Amount ||
+		stored.Date != updated.Date ||
+		stored.Category != updated.Category ||
+		stored.Subcategory != updated.Subcategory ||
+		stored.PaymentMethod != updated.PaymentMethod ||
+		stored.Installments != updated.Installments ||
+		stored.Tags != updated.Tags ||
+		stored.IsPaid != updated.IsPaid {
+		t.Fatalf("stored transaction does not match update: %#v", stored)
+	}
+
+	var notifiedAt string
+	if err := repo.db.QueryRow(
+		"SELECT notified_at FROM transactions WHERE uuid = ?;",
+		transactionID.String(),
+	).Scan(&notifiedAt); err != nil {
+		t.Fatalf("read updated reminder state: %v", err)
+	}
+	if notifiedAt != "" {
+		t.Fatalf("expected update to reset reminder state, got %q", notifiedAt)
+	}
+
+	if err := repo.SoftDeleteTransaction(transactionID.String()); err != nil {
+		t.Fatalf("archive transaction: %v", err)
+	}
+	if err := repo.UpdateTransaction(updated); err == nil {
+		t.Fatal("expected archived transaction update to fail")
+	}
+	if err := repo.RestoreTransaction(transactionID.String()); err != nil {
+		t.Fatalf("restore transaction: %v", err)
+	}
+	if _, err := repo.GetTransactionByID(transactionID.String()); err != nil {
+		t.Fatalf("get restored transaction: %v", err)
+	}
+	if err := repo.RestoreTransaction(transactionID.String()); err == nil {
+		t.Fatal("expected restoring an active transaction to fail")
+	}
+}
+
 func assertFloatEqual(t *testing.T, label string, got float64, want float64) {
 	t.Helper()
 	if math.Abs(got-want) > 0.000001 {

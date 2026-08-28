@@ -134,7 +134,11 @@ export namespace models {
 	    description?: string;
 	    amount?: number;
 	    date?: string;
+	    start_date?: string;
+	    end_date?: string;
 	    category?: string;
+	    is_paid?: boolean;
+	    include_archived: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new TransactionFilters(source);
@@ -145,7 +149,11 @@ export namespace models {
 	        this.description = source["description"];
 	        this.amount = source["amount"];
 	        this.date = source["date"];
+	        this.start_date = source["start_date"];
+	        this.end_date = source["end_date"];
 	        this.category = source["category"];
+	        this.is_paid = source["is_paid"];
+	        this.include_archived = source["include_archived"];
 	    }
 	}
 
