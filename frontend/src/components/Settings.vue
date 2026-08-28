@@ -51,6 +51,31 @@
           </v-card-text>
         </v-card>
 
+        <v-card v-else-if="activeTab === 'currency'" variant="flat">
+          <v-card-title>Currency</v-card-title>
+          <v-card-subtitle>
+            Choose the currency used to display monetary values throughout Prisma.
+          </v-card-subtitle>
+
+          <v-card-text class="pt-6">
+            <v-select
+              v-model="currencyCode"
+              :items="currencyOptions"
+              item-title="name"
+              item-value="code"
+              label="Display Currency"
+              variant="outlined"
+              :loading="currencyLoading || currencySaving"
+              :disabled="currencyLoading || currencySaving"
+              @update:model-value="saveCurrencyCode"
+            ></v-select>
+
+            <div class="text-caption text-medium-emphasis">
+              The currency changes formatting only. It does not convert existing transaction values.
+            </div>
+          </v-card-text>
+        </v-card>
+
         <v-card v-else variant="flat">
           <v-card-title class="d-flex align-center pe-2">
             <v-text-field
@@ -154,13 +179,18 @@ import {
   UpdateSetting,
   InactivateSetting,
   GetNotificationsEnabled,
-  SetNotificationsEnabled
+  SetNotificationsEnabled,
+  GetCurrencyCode,
+  SetCurrencyCode
 } from '../../wailsjs/go/main/App';
+
+const emit = defineEmits(['currency-changed']);
 
 const tabs = [
   { title: 'Subcategories', value: 'subcategories' },
   { title: 'Payment Methods', value: 'payment_methods' },
   { title: 'Tags', value: 'tags' },
+  { title: 'Currency', value: 'currency' },
   { title: 'Notifications', value: 'notifications' }
 ];
 
@@ -171,6 +201,19 @@ const isModalOpen = ref(false);
 const notificationsEnabled = ref(false);
 const notificationsLoading = ref(false);
 const notificationsSaving = ref(false);
+const currencyCode = ref('USD');
+const currencyLoading = ref(false);
+const currencySaving = ref(false);
+
+const currencyOptions = [
+  { code: 'AUD', name: 'Australian Dollar (AUD)' },
+  { code: 'BRL', name: 'Brazilian Real (BRL)' },
+  { code: 'CAD', name: 'Canadian Dollar (CAD)' },
+  { code: 'EUR', name: 'Euro (EUR)' },
+  { code: 'GBP', name: 'British Pound (GBP)' },
+  { code: 'JPY', name: 'Japanese Yen (JPY)' },
+  { code: 'USD', name: 'US Dollar (USD)' },
+];
 
 const feedback = reactive({
   show: false,
@@ -196,6 +239,19 @@ async function loadData() {
       showFeedback('Could not load the notification preference.', 'error');
     } finally {
       notificationsLoading.value = false;
+    }
+    return;
+  }
+
+  if (activeTab.value === 'currency') {
+    currencyLoading.value = true;
+    try {
+      currencyCode.value = await GetCurrencyCode() || 'USD';
+    } catch (err) {
+      console.error('Error loading currency settings:', err);
+      showFeedback('Could not load the currency preference.', 'error');
+    } finally {
+      currencyLoading.value = false;
     }
     return;
   }
@@ -251,6 +307,24 @@ async function saveNotificationsEnabled(enabled) {
     showFeedback('Could not save the notification preference.', 'error');
   } finally {
     notificationsSaving.value = false;
+  }
+}
+
+async function saveCurrencyCode(newCurrencyCode) {
+  if (currencySaving.value || !newCurrencyCode) return;
+
+  currencySaving.value = true;
+  try {
+    await SetCurrencyCode(newCurrencyCode);
+    currencyCode.value = newCurrencyCode;
+    emit('currency-changed', newCurrencyCode);
+    showFeedback(`Display currency changed to ${newCurrencyCode}.`, 'success');
+  } catch (err) {
+    console.error('Error saving currency settings:', err);
+    showFeedback('Could not save the currency preference.', 'error');
+    await loadData();
+  } finally {
+    currencySaving.value = false;
   }
 }
 

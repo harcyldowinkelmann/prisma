@@ -144,6 +144,21 @@ func (a *App) SetNotificationsEnabled(enabled bool) error {
 	return a.db.SetNotificationsEnabled(enabled)
 }
 
+// GetCurrencyCode returns the currency selected for monetary values.
+func (a *App) GetCurrencyCode() (string, error) {
+	return a.db.GetCurrencyCode()
+}
+
+// SetCurrencyCode persists the currency selected for monetary values.
+func (a *App) SetCurrencyCode(currencyCode string) error {
+	return a.db.SetCurrencyCode(currencyCode)
+}
+
+// GetFinancialMetrics returns calculated totals for an inclusive date range.
+func (a *App) GetFinancialMetrics(startDate string, endDate string) (models.FinancialMetrics, error) {
+	return a.db.GetFinancialMetrics(startDate, endDate)
+}
+
 // Fetches an active Transaction by its UUID
 func (a *App) GetTransactionByID(uuid string) (models.Transaction, error) {
 	return a.db.GetTransactionByID(uuid)

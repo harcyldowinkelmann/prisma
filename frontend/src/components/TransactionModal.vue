@@ -1,5 +1,5 @@
 <template>
-  <!-- Snackbar de aviso -->
+  <!-- Feedback snackbar -->
   <div>
         <v-snackbar
             v-model="snackbar.show"
@@ -38,7 +38,7 @@
                             <v-col cols="6">
                                 <v-tooltip text="The total value of the transaction" location="top">
                                     <template v-slot:activator="{ props }">
-                                        <v-text-field v-bind="props" v-model="form.amount" label="Amount ($)" type="number" prefix="$" variant="outlined"></v-text-field>
+                                        <v-text-field v-bind="props" v-model="form.amount" :label="amountLabel" type="number" :prefix="currencySymbol" variant="outlined"></v-text-field>
                                     </template>
                                 </v-tooltip>
                             </v-col>
@@ -117,8 +117,9 @@
 </template>
 
 <script setup>
-    import { ref, reactive, onMounted, watch } from 'vue';
+    import { computed, ref, reactive, onMounted, watch } from 'vue';
     import { SaveTransaction, GetSettings } from '../../wailsjs/go/main/App';
+    import { getCurrencySymbol } from '../utils/currency';
 
     const snackbar = reactive({
         show: false,
@@ -130,7 +131,14 @@
     const props = defineProps({
         modelValue: Boolean, // Controls visibility (v-model)
         category: String,
+        currencyCode: {
+            type: String,
+            default: 'USD'
+        }
     });
+
+    const currencySymbol = computed(() => getCurrencySymbol(props.currencyCode));
+    const amountLabel = computed(() => `Amount (${props.currencyCode})`);
 
     // Emits: To close the modal or notify that it saved
     const emit = defineEmits(['update:modelValue', 'saved']);

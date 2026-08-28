@@ -8,6 +8,7 @@ import (
 	"prisma/internal/models"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
@@ -17,7 +18,20 @@ type Repository struct {
 	db *sql.DB
 }
 
-const notificationsEnabledSettingKey = "notifications_enabled"
+const (
+	notificationsEnabledSettingKey = "notifications_enabled"
+	currencyCodeSettingKey         = "currency_code"
+)
+
+var supportedCurrencyCodes = map[string]bool{
+	"AUD": true,
+	"BRL": true,
+	"CAD": true,
+	"EUR": true,
+	"GBP": true,
+	"JPY": true,
+	"USD": true,
+}
 
 type columnMigration struct {
 	name       string
@@ -136,8 +150,90 @@ func (r *Repository) initTables() error {
 	); err != nil {
 		return fmt.Errorf("error seeding notification settings: %w", err)
 	}
+	if _, err := r.db.Exec(
+		"INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING;",
+		currencyCodeSettingKey,
+		"USD",
+	); err != nil {
+		return fmt.Errorf("error seeding currency settings: %w", err)
+	}
 
 	return nil
+}
+
+// GetFinancialMetrics calculates income and expense totals for an inclusive date range.
+func (r *Repository) GetFinancialMetrics(startDate string, endDate string) (models.FinancialMetrics, error) {
+	metrics := models.FinancialMetrics{Categories: []models.CategoryMetric{}}
+
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return metrics, fmt.Errorf("invalid start date %q: %w", startDate, err)
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return metrics, fmt.Errorf("invalid end date %q: %w", endDate, err)
+	}
+	if start.After(end) {
+		return metrics, fmt.Errorf("start date must not be after end date")
+	}
+
+	rows, err := r.db.Query(`
+		SELECT c.name,
+		       c.type,
+		       COALESCE(SUM(t.amount), 0),
+		       COALESCE(SUM(CASE WHEN t.is_paid = 1 THEN t.amount ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN t.is_paid = 0 THEN t.amount ELSE 0 END), 0)
+		FROM categories c
+		LEFT JOIN transactions t
+		       ON t.category = c.name
+		      AND t.active = 1
+		      AND t.date BETWEEN ? AND ?
+		WHERE c.active = 1
+		GROUP BY c.uuid, c.name, c.type, c.rowid
+		ORDER BY c.rowid ASC;
+	`, startDate, endDate)
+	if err != nil {
+		return metrics, fmt.Errorf("error calculating financial metrics: %w", err)
+	}
+	defer rows.Close()
+
+	var expectedIncome float64
+	var expectedExpenses float64
+	for rows.Next() {
+		var category models.CategoryMetric
+		if err := rows.Scan(
+			&category.Name,
+			&category.Type,
+			&category.TotalAmount,
+			&category.PaidAmount,
+			&category.PendingAmount,
+		); err != nil {
+			return metrics, fmt.Errorf("error scanning financial metrics: %w", err)
+		}
+
+		metrics.Categories = append(metrics.Categories, category)
+		switch category.Type {
+		case 1:
+			expectedIncome += category.TotalAmount
+			metrics.ReceivedIncome += category.PaidAmount
+		case -1:
+			expectedExpenses += category.TotalAmount
+			metrics.PaidExpenses += category.PaidAmount
+			metrics.PendingExpenses += category.PendingAmount
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return metrics, fmt.Errorf("error iterating financial metrics: %w", err)
+	}
+
+	metrics.ActualBalance = metrics.ReceivedIncome - metrics.PaidExpenses
+	metrics.ExpectedBalance = expectedIncome - expectedExpenses
+	metrics.HasReceivedIncome = metrics.ReceivedIncome > 0
+	if metrics.HasReceivedIncome {
+		metrics.IncomeSpentPercentage = metrics.PaidExpenses / metrics.ReceivedIncome * 100
+	}
+
+	return metrics, nil
 }
 
 // ensureTransactionColumns migrates older databases without relying on ignored
@@ -384,6 +480,40 @@ func (r *Repository) SetNotificationsEnabled(enabled bool) error {
 		return fmt.Errorf("error updating notification settings: %w", err)
 	}
 
+	return nil
+}
+
+// GetCurrencyCode returns the ISO currency code used to format monetary values.
+func (r *Repository) GetCurrencyCode() (string, error) {
+	var currencyCode string
+	if err := r.db.QueryRow(
+		"SELECT value FROM app_settings WHERE key = ?;",
+		currencyCodeSettingKey,
+	).Scan(&currencyCode); err != nil {
+		return "", fmt.Errorf("error reading currency settings: %w", err)
+	}
+	if !supportedCurrencyCodes[currencyCode] {
+		return "", fmt.Errorf("unsupported stored currency code: %s", currencyCode)
+	}
+	return currencyCode, nil
+}
+
+// SetCurrencyCode persists the ISO currency code used by the interface.
+func (r *Repository) SetCurrencyCode(currencyCode string) error {
+	currencyCode = strings.ToUpper(strings.TrimSpace(currencyCode))
+	if !supportedCurrencyCodes[currencyCode] {
+		return fmt.Errorf("unsupported currency code: %s", currencyCode)
+	}
+
+	_, err := r.db.Exec(
+		`INSERT INTO app_settings (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value;`,
+		currencyCodeSettingKey,
+		currencyCode,
+	)
+	if err != nil {
+		return fmt.Errorf("error updating currency settings: %w", err)
+	}
 	return nil
 }
 

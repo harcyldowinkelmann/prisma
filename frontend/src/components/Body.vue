@@ -31,7 +31,7 @@
               <div class="d-flex justify-space-between align-center">
                 <div class="text-body-1">{{ item?.description || 'No description' }}</div>
                 <div class="text-body-2 font-weight-bold">
-                  {{ formatCurrency(item?.amount || 0) }}
+                  {{ formatMoney(item?.amount || 0) }}
                 </div>
               </div>
               <div class="text-caption text-disabled">{{ formatDate(item?.date) }}</div>
@@ -61,13 +61,14 @@
     <v-card-actions class="pa-4 bg-surface-light">
       <strong>Total:</strong>
       <v-spacer></v-spacer>
-      <strong>{{ formatCurrency(totalValue) }}</strong>
+      <strong>{{ formatMoney(totalValue) }}</strong>
     </v-card-actions>
   </v-card>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import { formatCurrency } from '../utils/currency';
 
 const props = defineProps({
   title: {
@@ -77,6 +78,10 @@ const props = defineProps({
   items: {
     type: Array,
     default: () => [],
+  },
+  currencyCode: {
+    type: String,
+    default: 'USD',
   },
 });
 
@@ -103,13 +108,8 @@ const totalValue = computed(() => {
   return safeItems.value.reduce((acc, item) => acc + (item.amount || 0), 0)
 });
 
-function formatCurrency(value) {
-  const val = Number(value);
-  if (isNaN(val)) return '$0.00';
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(val);
+function formatMoney(value) {
+  return formatCurrency(value, props.currencyCode);
 }
 
 function formatDate(isoDate) {

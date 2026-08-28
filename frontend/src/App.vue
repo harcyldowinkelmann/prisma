@@ -2,7 +2,7 @@
   <v-app>
     <v-main>
       <!-- STATIC HEADER (Always visible) -->
-      <Metrics />
+      <Metrics :currency-code="currencyCode" :refresh-key="metricsRefreshKey" />
 
       <!-- NAVIGATION DIRECTLY BELOW THE HEADER -->
       <v-tabs v-model="activeTab" bg-color="transparent" align-tabs="center" class="mt-2 mb-4">
@@ -40,7 +40,8 @@
               >
                 <Body 
                   :title="cat.name" 
-                  :items="transactionsByCategory[cat.name] || []" 
+                  :items="transactionsByCategory[cat.name] || []"
+                  :currency-code="currencyCode"
                   @request-add="openModal" 
                   @request-edit="openEditModal" 
                   @request-inactivate="inactivateTransaction" 
@@ -66,13 +67,14 @@
 
         <!-- TAB 4: SETTINGS -->
         <v-window-item value="settings">
-          <Settings />
+          <Settings @currency-changed="onCurrencyChanged" />
         </v-window-item>
       </v-window>
 
       <TransactionModal
         v-model="isModalOpen"
         :category="selectedCategory"
+        :currency-code="currencyCode"
         @saved="onTransactionSaved"
       ></TransactionModal>
 
@@ -88,11 +90,13 @@ import TransactionModal from './components/TransactionModal.vue';
 import CategoryModal from './components/CategoryModal.vue';
 import Settings from './components/Settings.vue';
 import { ref, onMounted } from 'vue';
-import { GetTransactions, SoftDeleteTransaction, GetCategories } from '../wailsjs/go/main/App';
+import { GetTransactions, SoftDeleteTransaction, GetCategories, GetCurrencyCode } from '../wailsjs/go/main/App';
 
 const activeTab = ref('dashboard');
 const isModalOpen = ref(false);
 const selectedCategory = ref('');
+const currencyCode = ref('USD');
+const metricsRefreshKey = ref(0);
 
 const categories = ref([]);
 const transactionsByCategory = ref({});
@@ -138,6 +142,7 @@ async function loadAllData() {
       map[cat.name] = await GetTransactions({ category: cat.name }) || [];
     }
     transactionsByCategory.value = map;
+    metricsRefreshKey.value += 1;
     
     console.log("Data reloaded from SQLite successfully.");
   } catch (err) {
@@ -145,8 +150,21 @@ async function loadAllData() {
   }
 }
 
+async function loadCurrency() {
+  try {
+    currencyCode.value = await GetCurrencyCode() || 'USD';
+  } catch (err) {
+    console.error('Failed to load currency settings:', err);
+  }
+}
+
+function onCurrencyChanged(newCurrencyCode) {
+  currencyCode.value = newCurrencyCode;
+}
+
 onMounted(() => {
   loadAllData();
+  loadCurrency();
 });
 
 // Called when modal finishes saving successfully
