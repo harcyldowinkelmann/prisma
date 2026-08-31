@@ -48,6 +48,9 @@ var transactionColumnMigrations = []columnMigration{
 	{name: "is_paid", definition: "INTEGER NOT NULL DEFAULT 1"},
 	{name: "reconciled", definition: "INTEGER NOT NULL DEFAULT 0"},
 	{name: "import_fingerprint", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "recurrence_id", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "occurrence_date", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "installment_group", definition: "TEXT NOT NULL DEFAULT ''"},
 	{name: "notified_at", definition: "TEXT DEFAULT ''"},
 }
 
@@ -109,6 +112,9 @@ func (r *Repository) initTables() error {
 			is_paid INTEGER NOT NULL DEFAULT 1,
 			reconciled INTEGER NOT NULL DEFAULT 0,
 			import_fingerprint TEXT NOT NULL DEFAULT '',
+			recurrence_id TEXT NOT NULL DEFAULT '',
+			occurrence_date TEXT NOT NULL DEFAULT '',
+			installment_group TEXT NOT NULL DEFAULT '',
 			notified_at TEXT DEFAULT '',
 			active INTEGER NOT NULL DEFAULT 1
 		);
@@ -126,6 +132,17 @@ func (r *Repository) initTables() error {
 		`CREATE TABLE IF NOT EXISTS tags (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
 		`CREATE TABLE IF NOT EXISTS categories (uuid TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, type INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1);`,
 		`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
+		`CREATE TABLE IF NOT EXISTS recurring_schedules (
+			uuid TEXT PRIMARY KEY, description TEXT NOT NULL, amount_cents INTEGER NOT NULL,
+			start_date TEXT NOT NULL, end_date TEXT NOT NULL DEFAULT '', frequency TEXT NOT NULL,
+			category TEXT NOT NULL, subcategory TEXT NOT NULL DEFAULT '',
+			payment_method TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '',
+			is_paid INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1
+		);`,
+		`CREATE TABLE IF NOT EXISTS budgets (
+			uuid TEXT PRIMARY KEY, month TEXT NOT NULL, category TEXT NOT NULL,
+			limit_cents INTEGER NOT NULL, UNIQUE(month, category)
+		);`,
 	}
 	for _, q := range settingsQueries {
 		if _, err := r.db.Exec(q); err != nil {
@@ -145,6 +162,13 @@ func (r *Repository) initTables() error {
 		WHERE import_fingerprint != '';
 	`); err != nil {
 		return fmt.Errorf("error creating statement import index: %w", err)
+	}
+	if _, err := r.db.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_recurrence_occurrence
+		ON transactions(recurrence_id, occurrence_date)
+		WHERE recurrence_id != '';
+	`); err != nil {
+		return fmt.Errorf("error creating recurring occurrence index: %w", err)
 	}
 
 	// Seed default categories if none exist
@@ -517,6 +541,9 @@ func (r *Repository) migrateTransactionAmounts() error {
 			is_paid INTEGER NOT NULL DEFAULT 1,
 			reconciled INTEGER NOT NULL DEFAULT 0,
 			import_fingerprint TEXT NOT NULL DEFAULT '',
+			recurrence_id TEXT NOT NULL DEFAULT '',
+			occurrence_date TEXT NOT NULL DEFAULT '',
+			installment_group TEXT NOT NULL DEFAULT '',
 			notified_at TEXT DEFAULT '',
 			active INTEGER NOT NULL DEFAULT 1
 		);
@@ -528,11 +555,13 @@ func (r *Repository) migrateTransactionAmounts() error {
 		INSERT INTO transactions_amount_migration (
 			uuid, description, amount_cents, date, category, subcategory,
 			payment_method, installments, tags, is_paid, reconciled,
-			import_fingerprint, notified_at, active
+			import_fingerprint, recurrence_id, occurrence_date,
+			installment_group, notified_at, active
 		)
 		SELECT uuid, description, %s, date, category, subcategory,
 		       payment_method, installments, tags, is_paid, reconciled,
-		       import_fingerprint, notified_at, active
+		       import_fingerprint, recurrence_id, occurrence_date,
+		       installment_group, notified_at, active
 		FROM transactions;
 	`, amountExpression)
 	if _, err := tx.Exec(copyQuery); err != nil {
@@ -1315,14 +1344,57 @@ func (r *Repository) GetCategories() ([]models.Category, error) {
 
 // UpdateCategory updates category
 func (r *Repository) UpdateCategory(uuid string, name string, t int) error {
-	query := "UPDATE categories SET name = ?, type = ? WHERE uuid = ?"
-	_, err := r.db.Exec(query, name, t, uuid)
-	return err
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("error starting category update: %w", err)
+	}
+	defer tx.Rollback()
+	var oldName string
+	if err := tx.QueryRow("SELECT name FROM categories WHERE uuid = ? AND active = 1;", uuid).Scan(&oldName); err != nil {
+		return fmt.Errorf("error finding active category: %w", err)
+	}
+	if _, err := tx.Exec("UPDATE categories SET name = ?, type = ? WHERE uuid = ?;", name, t, uuid); err != nil {
+		return fmt.Errorf("error updating category: %w", err)
+	}
+	for _, query := range []string{
+		"UPDATE transactions SET category = ? WHERE category = ?;",
+		"UPDATE recurring_schedules SET category = ? WHERE category = ?;",
+		"UPDATE budgets SET category = ? WHERE category = ?;",
+	} {
+		if _, err := tx.Exec(query, name, oldName); err != nil {
+			return fmt.Errorf("error updating category references: %w", err)
+		}
+	}
+	if t != -1 {
+		if _, err := tx.Exec("DELETE FROM budgets WHERE category = ?;", name); err != nil {
+			return fmt.Errorf("error removing incompatible category budgets: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("error committing category update: %w", err)
+	}
+	return nil
 }
 
 // SoftDeleteCategory
 func (r *Repository) SoftDeleteCategory(uuid string) error {
-	query := "UPDATE categories SET active = 0 WHERE uuid = ?"
-	_, err := r.db.Exec(query, uuid)
-	return err
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("error starting category archive: %w", err)
+	}
+	defer tx.Rollback()
+	var categoryName string
+	if err := tx.QueryRow("SELECT name FROM categories WHERE uuid = ? AND active = 1;", uuid).Scan(&categoryName); err != nil {
+		return fmt.Errorf("error finding active category: %w", err)
+	}
+	if _, err := tx.Exec("UPDATE categories SET active = 0 WHERE uuid = ?;", uuid); err != nil {
+		return fmt.Errorf("error archiving category: %w", err)
+	}
+	if _, err := tx.Exec("UPDATE recurring_schedules SET active = 0 WHERE category = ?;", categoryName); err != nil {
+		return fmt.Errorf("error stopping category recurring schedules: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("error committing category archive: %w", err)
+	}
+	return nil
 }

@@ -9,6 +9,7 @@
         <v-tab value="dashboard">Dashboard</v-tab>
         <v-tab value="metrics">Metrics & Reports</v-tab>
         <v-tab value="transactions">All Transactions</v-tab>
+        <v-tab value="planning">Planning</v-tab>
         <v-tab value="settings">Settings</v-tab>
       </v-tabs>
 
@@ -69,7 +70,16 @@
           />
         </v-window-item>
 
-        <!-- TAB 4: SETTINGS -->
+        <!-- TAB 4: PLANNING -->
+        <v-window-item value="planning">
+          <Planning
+            :currency-code="currencyCode"
+            :refresh-key="transactionsRefreshKey"
+            @data-changed="loadAllData"
+          />
+        </v-window-item>
+
+        <!-- TAB 5: SETTINGS -->
         <v-window-item value="settings">
           <Settings @currency-changed="onCurrencyChanged" />
         </v-window-item>
@@ -96,6 +106,7 @@ import CategoryModal from './components/CategoryModal.vue';
 import Settings from './components/Settings.vue';
 import Transactions from './components/Transactions.vue';
 import Reports from './components/Reports.vue';
+import Planning from './components/Planning.vue';
 import { ref, onMounted } from 'vue';
 import { GetTransactions, SoftDeleteTransaction, RestoreTransaction, GetCategories, GetCurrencyCode } from '../wailsjs/go/main/App';
 

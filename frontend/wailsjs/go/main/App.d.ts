@@ -4,7 +4,15 @@ import {models} from '../models';
 
 export function AddCategory(arg1:string,arg2:number):Promise<void>;
 
+export function AddRecurringSchedule(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:boolean):Promise<void>;
+
 export function AddSetting(arg1:string,arg2:string):Promise<void>;
+
+export function DeleteBudget(arg1:string,arg2:string):Promise<void>;
+
+export function GenerateRecurringTransactions(arg1:string):Promise<number>;
+
+export function GetBudgetSummaries(arg1:string):Promise<Array<models.BudgetSummary>>;
 
 export function GetCategories():Promise<Array<models.Category>>;
 
@@ -13,6 +21,8 @@ export function GetCurrencyCode():Promise<string>;
 export function GetFinancialMetrics(arg1:string,arg2:string):Promise<models.FinancialMetrics>;
 
 export function GetNotificationsEnabled():Promise<boolean>;
+
+export function GetRecurringSchedules():Promise<Array<models.RecurringSchedule>>;
 
 export function GetSettings(arg1:string):Promise<Array<models.SettingItem>>;
 
@@ -32,6 +42,10 @@ export function PreviewStatementCSV(arg1:string,arg2:models.StatementParseOption
 
 export function RestoreTransaction(arg1:string):Promise<string>;
 
+export function SaveBudget(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SaveInstallmentTransactions(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:boolean,arg9:number):Promise<string>;
+
 export function SaveTransaction(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:boolean):Promise<string>;
 
 export function SetCurrencyCode(arg1:string):Promise<void>;
@@ -43,6 +57,8 @@ export function SetTransactionReconciled(arg1:string,arg2:boolean):Promise<void>
 export function SoftDeleteCategory(arg1:string):Promise<void>;
 
 export function SoftDeleteTransaction(arg1:string):Promise<string>;
+
+export function StopRecurringSchedule(arg1:string):Promise<void>;
 
 export function UpdateCategory(arg1:string,arg2:string,arg3:number):Promise<void>;
 

@@ -24,6 +24,9 @@ The focus of this app is not to have thousands of features, but rather to provid
 - **Transaction Management:** Search and filter the complete transaction history, edit active entries, and archive or restore records.
 - **Bank Reconciliation:** Mark transactions as reconciled, filter by reconciliation state, and automatically mark matched statement entries as paid.
 - **CSV Statement Import:** Preview localized bank statement files, map signed or debit/credit columns, match existing transactions, and prevent duplicate imports.
+- **Installment Plans:** Split a total into exact monthly installments without losing cents, including end-of-month date adjustments.
+- **Recurring Transactions:** Schedule weekly, monthly, or yearly entries and generate missing occurrences without duplicates.
+- **Monthly Budgets:** Set expense limits by category and monitor spending, remaining amounts, and over-budget status.
 - **Monthly Metrics:** Review received income, paid and pending expenses, actual and expected balances, income spent, and category totals for any month.
 - **Spending Reports:** Analyze active expenses by category, subcategory, payment method, or tag for any date range, including paid and pending totals and percentage shares.
 - **Custom Settings:** Manage transaction subcategories, payment methods, tags, and columns.

@@ -1,5 +1,31 @@
 export namespace models {
 	
+	export class BudgetSummary {
+	    uuid: string;
+	    month: string;
+	    category: string;
+	    limit_cents: number;
+	    spent_cents: number;
+	    remaining_cents: number;
+	    percentage_used: number;
+	    over_budget: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new BudgetSummary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uuid = source["uuid"];
+	        this.month = source["month"];
+	        this.category = source["category"];
+	        this.limit_cents = source["limit_cents"];
+	        this.spent_cents = source["spent_cents"];
+	        this.remaining_cents = source["remaining_cents"];
+	        this.percentage_used = source["percentage_used"];
+	        this.over_budget = source["over_budget"];
+	    }
+	}
 	export class Category {
 	    uuid: string;
 	    name: string;
@@ -81,6 +107,40 @@ export namespace models {
 		    }
 		    return a;
 		}
+	}
+	export class RecurringSchedule {
+	    uuid: string;
+	    description: string;
+	    amount_cents: number;
+	    start_date: string;
+	    end_date: string;
+	    frequency: string;
+	    category: string;
+	    subcategory: string;
+	    payment_method: string;
+	    tags: string;
+	    is_paid: boolean;
+	    active: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new RecurringSchedule(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uuid = source["uuid"];
+	        this.description = source["description"];
+	        this.amount_cents = source["amount_cents"];
+	        this.start_date = source["start_date"];
+	        this.end_date = source["end_date"];
+	        this.frequency = source["frequency"];
+	        this.category = source["category"];
+	        this.subcategory = source["subcategory"];
+	        this.payment_method = source["payment_method"];
+	        this.tags = source["tags"];
+	        this.is_paid = source["is_paid"];
+	        this.active = source["active"];
+	    }
 	}
 	export class ReportGroup {
 	    name: string;

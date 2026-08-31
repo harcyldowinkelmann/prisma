@@ -8,6 +8,7 @@ import (
 	"prisma/internal/statement"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
@@ -833,6 +834,238 @@ func TestSaveTransactionRejectsInexactRange(t *testing.T) {
 				t.Fatal("expected invalid cent amount to be rejected")
 			}
 		})
+	}
+}
+
+func TestSaveInstallmentTransactionsPreservesTotalAndClampsMonthlyDates(t *testing.T) {
+	repo := newTestRepository(t)
+	err := repo.SaveInstallmentTransactions(models.Transaction{
+		Description: "Installment purchase", AmountCents: 10000, Date: "2027-01-31",
+		Category: "Fixed Expenses", PaymentMethod: "Credit Card", Active: true,
+	}, 3)
+	if err != nil {
+		t.Fatalf("save installment plan: %v", err)
+	}
+
+	transactions, err := repo.GetTransactions(models.TransactionFilters{})
+	if err != nil {
+		t.Fatalf("get installments: %v", err)
+	}
+	if len(transactions) != 3 {
+		t.Fatalf("expected 3 installments, got %d", len(transactions))
+	}
+	want := map[string]struct {
+		amount int64
+		label  string
+	}{
+		"2027-01-31": {amount: 3334, label: "1/3"},
+		"2027-02-28": {amount: 3333, label: "2/3"},
+		"2027-03-31": {amount: 3333, label: "3/3"},
+	}
+	var total int64
+	for _, transaction := range transactions {
+		expected, exists := want[transaction.Date]
+		if !exists {
+			t.Errorf("unexpected installment date: %s", transaction.Date)
+			continue
+		}
+		assertInt64Equal(t, transaction.Date+" amount", transaction.AmountCents, expected.amount)
+		if transaction.Installments != expected.label {
+			t.Errorf("%s: expected label %q, got %q", transaction.Date, expected.label, transaction.Installments)
+		}
+		total += transaction.AmountCents
+	}
+	assertInt64Equal(t, "installment total", total, 10000)
+}
+
+func TestSaveInstallmentTransactionsRejectsImpossiblePlanWithoutPartialRows(t *testing.T) {
+	repo := newTestRepository(t)
+	err := repo.SaveInstallmentTransactions(models.Transaction{
+		Description: "Too many installments", AmountCents: 2, Date: "2027-01-01",
+		Category: "Fixed Expenses", Active: true,
+	}, 3)
+	if err == nil {
+		t.Fatal("expected a plan with less than one cent per installment to fail")
+	}
+	transactions, getErr := repo.GetTransactions(models.TransactionFilters{})
+	if getErr != nil {
+		t.Fatalf("get transactions after rejected plan: %v", getErr)
+	}
+	if len(transactions) != 0 {
+		t.Fatalf("expected no partial installments, got %#v", transactions)
+	}
+}
+
+func TestRecurringGenerationIsIdempotentAndClampsMonthlyDates(t *testing.T) {
+	repo := newTestRepository(t)
+	schedule := models.RecurringSchedule{
+		UUID: uuid.New().String(), Description: "Monthly subscription", AmountCents: 1999,
+		StartDate: "2027-01-31", EndDate: "2027-03-31", Frequency: "monthly",
+		Category: "Fixed Expenses", IsPaid: false, Active: true,
+	}
+	if err := repo.SaveRecurringSchedule(schedule); err != nil {
+		t.Fatalf("save recurring schedule: %v", err)
+	}
+	generated, err := repo.GenerateRecurringTransactions("2027-03-31")
+	if err != nil {
+		t.Fatalf("generate recurring transactions: %v", err)
+	}
+	if generated != 3 {
+		t.Fatalf("expected 3 generated occurrences, got %d", generated)
+	}
+	generated, err = repo.GenerateRecurringTransactions("2027-03-31")
+	if err != nil {
+		t.Fatalf("repeat recurring generation: %v", err)
+	}
+	if generated != 0 {
+		t.Fatalf("expected repeated generation to be idempotent, got %d new rows", generated)
+	}
+
+	transactions, err := repo.GetTransactions(models.TransactionFilters{})
+	if err != nil {
+		t.Fatalf("get recurring transactions: %v", err)
+	}
+	wantDates := map[string]bool{"2027-01-31": true, "2027-02-28": true, "2027-03-31": true}
+	if len(transactions) != len(wantDates) {
+		t.Fatalf("expected %d recurring transactions, got %d", len(wantDates), len(transactions))
+	}
+	for _, transaction := range transactions {
+		if !wantDates[transaction.Date] || transaction.Installments != "Recurring: Monthly" {
+			t.Errorf("unexpected recurring transaction: %#v", transaction)
+		}
+	}
+
+	if err := repo.SoftDeleteRecurringSchedule(schedule.UUID); err != nil {
+		t.Fatalf("stop recurring schedule: %v", err)
+	}
+	generated, err = repo.GenerateRecurringTransactions("2027-12-31")
+	if err != nil {
+		t.Fatalf("generate after stopping schedule: %v", err)
+	}
+	if generated != 0 {
+		t.Fatalf("expected stopped schedule to generate no rows, got %d", generated)
+	}
+}
+
+func TestRecurringOccurrenceSupportsWeeklyAndLeapYearSchedules(t *testing.T) {
+	weeklyStart := time.Date(2027, time.January, 30, 0, 0, 0, 0, time.UTC)
+	if got := recurringOccurrence(weeklyStart, "weekly", 2).Format("2006-01-02"); got != "2027-02-13" {
+		t.Fatalf("expected weekly occurrence 2027-02-13, got %s", got)
+	}
+	leapStart := time.Date(2024, time.February, 29, 0, 0, 0, 0, time.UTC)
+	if got := recurringOccurrence(leapStart, "yearly", 1).Format("2006-01-02"); got != "2025-02-28" {
+		t.Fatalf("expected clamped yearly occurrence 2025-02-28, got %s", got)
+	}
+}
+
+func TestBudgetSummariesUseActiveMonthlyExpensesAndSupportUpsert(t *testing.T) {
+	repo := newTestRepository(t)
+	transactions := []models.Transaction{
+		{UUID: uuid.New(), Description: "Paid expense", AmountCents: 10000, Date: "2027-02-01", Category: "Variable Expenses", IsPaid: true, Active: true},
+		{UUID: uuid.New(), Description: "Pending expense", AmountCents: 7500, Date: "2027-02-28", Category: "Variable Expenses", IsPaid: false, Active: true},
+		{UUID: uuid.New(), Description: "Archived expense", AmountCents: 5000, Date: "2027-02-10", Category: "Variable Expenses", Active: false},
+		{UUID: uuid.New(), Description: "Outside month", AmountCents: 3000, Date: "2027-03-01", Category: "Variable Expenses", Active: true},
+		{UUID: uuid.New(), Description: "Income", AmountCents: 90000, Date: "2027-02-10", Category: "Incomes", Active: true},
+	}
+	for _, transaction := range transactions {
+		saveTestTransaction(t, repo, transaction)
+	}
+	if err := repo.SaveBudget("2027-02", "Variable Expenses", 15000); err != nil {
+		t.Fatalf("save budget: %v", err)
+	}
+
+	summaries, err := repo.GetBudgetSummaries("2027-02")
+	if err != nil {
+		t.Fatalf("get budget summaries: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("expected one budget, got %#v", summaries)
+	}
+	summary := summaries[0]
+	assertInt64Equal(t, "budget limit", summary.LimitCents, 15000)
+	assertInt64Equal(t, "budget spent", summary.SpentCents, 17500)
+	assertInt64Equal(t, "budget remaining", summary.RemainingCents, -2500)
+	assertFloatEqual(t, "budget percentage", summary.PercentageUsed, 116.6666666667)
+	if !summary.OverBudget {
+		t.Fatal("expected budget to be over its limit")
+	}
+
+	if err := repo.SaveBudget("2027-02", "Variable Expenses", 20000); err != nil {
+		t.Fatalf("replace budget: %v", err)
+	}
+	summaries, err = repo.GetBudgetSummaries("2027-02")
+	if err != nil {
+		t.Fatalf("get replaced budget: %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].LimitCents != 20000 || summaries[0].OverBudget {
+		t.Fatalf("unexpected replaced budget: %#v", summaries)
+	}
+	if err := repo.SaveBudget("2027-02", "Incomes", 10000); err == nil {
+		t.Fatal("expected an income category budget to be rejected")
+	}
+	if err := repo.DeleteBudget("2027-02", "Variable Expenses"); err != nil {
+		t.Fatalf("delete budget: %v", err)
+	}
+}
+
+func TestCategoryChangesPreservePlanningReferencesAndStopArchivedRules(t *testing.T) {
+	repo := newTestRepository(t)
+	if err := repo.AddCategory("Travel Expenses", -1); err != nil {
+		t.Fatalf("add planning category: %v", err)
+	}
+	categories, err := repo.GetCategories()
+	if err != nil {
+		t.Fatalf("get planning category: %v", err)
+	}
+	var categoryID string
+	for _, category := range categories {
+		if category.Name == "Travel Expenses" {
+			categoryID = category.UUID
+		}
+	}
+	if categoryID == "" {
+		t.Fatal("expected planning category")
+	}
+	saveTestTransaction(t, repo, models.Transaction{
+		UUID: uuid.New(), Description: "Trip", AmountCents: 5000,
+		Date: "2027-04-10", Category: "Travel Expenses", Active: true,
+	})
+	if err := repo.SaveBudget("2027-04", "Travel Expenses", 10000); err != nil {
+		t.Fatalf("save planning category budget: %v", err)
+	}
+	schedule := models.RecurringSchedule{
+		UUID: uuid.New().String(), Description: "Travel savings", AmountCents: 2000,
+		StartDate: "2027-04-01", Frequency: "monthly", Category: "Travel Expenses", Active: true,
+	}
+	if err := repo.SaveRecurringSchedule(schedule); err != nil {
+		t.Fatalf("save planning category recurrence: %v", err)
+	}
+
+	if err := repo.UpdateCategory(categoryID, "Travel and Leisure", -1); err != nil {
+		t.Fatalf("rename planning category: %v", err)
+	}
+	transactions, err := repo.GetTransactions(models.TransactionFilters{})
+	if err != nil || len(transactions) != 1 || transactions[0].Category != "Travel and Leisure" {
+		t.Fatalf("expected transaction category reference to be renamed: %#v, %v", transactions, err)
+	}
+	budgets, err := repo.GetBudgetSummaries("2027-04")
+	if err != nil || len(budgets) != 1 || budgets[0].Category != "Travel and Leisure" {
+		t.Fatalf("expected budget category reference to be renamed: %#v, %v", budgets, err)
+	}
+	schedules, err := repo.GetRecurringSchedules()
+	if err != nil || len(schedules) != 1 || schedules[0].Category != "Travel and Leisure" {
+		t.Fatalf("expected recurring category reference to be renamed: %#v, %v", schedules, err)
+	}
+
+	if err := repo.SoftDeleteCategory(categoryID); err != nil {
+		t.Fatalf("archive planning category: %v", err)
+	}
+	schedules, err = repo.GetRecurringSchedules()
+	if err != nil {
+		t.Fatalf("get schedules after category archive: %v", err)
+	}
+	if len(schedules) != 0 {
+		t.Fatalf("expected category archive to stop recurring rules, got %#v", schedules)
 	}
 }
 

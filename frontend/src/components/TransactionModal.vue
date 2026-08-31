@@ -112,16 +112,24 @@
               </v-col>
 
               <v-col cols="12" sm="6">
-                <v-tooltip text="Is this recurring or part of an installment plan? (e.g., 'Monthly', '1 of 12')" location="top">
-                  <template #activator="{ props: tooltipProps }">
-                    <v-text-field
-                      v-bind="tooltipProps"
-                      v-model="form.installments"
-                      label="Installments"
-                      variant="outlined"
-                    ></v-text-field>
-                  </template>
-                </v-tooltip>
+                <v-select
+                  v-if="!isEditing"
+                  v-model="form.installmentCount"
+                  :items="installmentOptions"
+                  item-title="title"
+                  item-value="value"
+                  label="Installment Plan"
+                  variant="outlined"
+                  hint="The amount above is the total for all installments."
+                  persistent-hint
+                ></v-select>
+                <v-text-field
+                  v-else
+                  v-model="form.installments"
+                  label="Installment or Recurrence"
+                  variant="outlined"
+                  readonly
+                ></v-text-field>
               </v-col>
 
               <v-col cols="12" sm="6">
@@ -176,7 +184,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import {
   GetCategories,
   GetSettings,
-  SaveTransaction,
+  SaveInstallmentTransactions,
   UpdateTransaction,
 } from '../../wailsjs/go/main/App';
 import { centsToDecimalString, getCurrencySymbol } from '../utils/currency';
@@ -216,6 +224,7 @@ const form = reactive({
   subcategory: '',
   paymentMethod: '',
   installments: '',
+  installmentCount: 1,
   tags: [],
   isPaid: true,
 });
@@ -223,6 +232,10 @@ const form = reactive({
 const isEditing = computed(() => Boolean(props.transaction?.id));
 const currencySymbol = computed(() => getCurrencySymbol(props.currencyCode));
 const amountLabel = computed(() => `Amount (${props.currencyCode})`);
+const installmentOptions = Array.from({ length: 60 }, (_, index) => ({
+  title: index === 0 ? 'Single transaction' : `${index + 1} monthly installments`,
+  value: index + 1,
+}));
 
 async function loadSettings() {
   try {
@@ -256,6 +269,7 @@ function populateForm() {
   form.subcategory = props.transaction.subcategory || '';
   form.paymentMethod = props.transaction.payment_method || '';
   form.installments = props.transaction.installments || '';
+  form.installmentCount = 1;
   form.tags = String(props.transaction.tags || '')
     .split(',')
     .map(tag => tag.trim())
@@ -271,6 +285,7 @@ function resetForm() {
   form.subcategory = '';
   form.paymentMethod = '';
   form.installments = '';
+  form.installmentCount = 1;
   form.tags = [];
   form.isPaid = true;
 }
@@ -310,22 +325,19 @@ async function save() {
   const tags = Array.isArray(form.tags) ? form.tags.join(', ') : String(form.tags || '');
 
   try {
-    const transactionArguments = [
-      form.description.trim(),
-      amount,
-      form.date,
-      form.category,
-      form.subcategory || '',
-      form.paymentMethod || '',
-      form.installments || '',
-      tags,
-      form.isPaid,
-    ];
-
     if (isEditing.value) {
-      await UpdateTransaction(props.transaction.id, ...transactionArguments);
+      await UpdateTransaction(
+        props.transaction.id,
+        form.description.trim(), amount, form.date, form.category,
+        form.subcategory || '', form.paymentMethod || '', form.installments || '',
+        tags, form.isPaid,
+      );
     } else {
-      await SaveTransaction(...transactionArguments);
+      await SaveInstallmentTransactions(
+        form.description.trim(), amount, form.date, form.category,
+        form.subcategory || '', form.paymentMethod || '', tags,
+        form.isPaid, Number(form.installmentCount),
+      );
     }
 
     emit('saved');

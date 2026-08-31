@@ -44,6 +44,9 @@ func (a *App) startup(ctx context.Context) {
 
 	// Injects the repository into the App struct
 	a.db = repo
+	if _, err := repo.GenerateRecurringTransactions(lastDayOfCurrentMonth()); err != nil {
+		fmt.Printf("ERROR GENERATING RECURRING TRANSACTIONS: %v\n", err)
+	}
 
 	// Start the background notification service
 	notifierCtx, cancelNotifier := context.WithCancel(ctx)
@@ -97,6 +100,23 @@ func (a *App) SaveTransaction(description string, amount string, date string, ca
 
 	// Return a success string and 'nil' for error
 	return "Transaction saved successfully!", nil
+}
+
+// SaveInstallmentTransactions creates one transaction or an exact monthly installment plan.
+func (a *App) SaveInstallmentTransactions(description string, amount string, date string, category string, subcategory string, paymentMethod string, tags string, isPaid bool, installmentCount int) (string, error) {
+	amountCents, err := parseAmountToCents(amount)
+	if err != nil {
+		return "", err
+	}
+	transaction := models.Transaction{
+		Description: strings.TrimSpace(description), AmountCents: amountCents, Date: date,
+		Category: category, Subcategory: subcategory, PaymentMethod: paymentMethod,
+		Tags: tags, IsPaid: isPaid, Active: true,
+	}
+	if err := a.db.SaveInstallmentTransactions(transaction, installmentCount); err != nil {
+		return "", err
+	}
+	return "Transaction plan saved successfully!", nil
 }
 
 // UpdateTransaction updates an existing active transaction.
@@ -177,6 +197,11 @@ func containsOnlyDigits(value string) bool {
 		}
 	}
 	return true
+}
+
+func lastDayOfCurrentMonth() string {
+	now := time.Now()
+	return time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Format("2006-01-02")
 }
 
 func (a *App) SoftDeleteTransaction(uuid string) (string, error) {
@@ -302,6 +327,58 @@ func (a *App) PreviewStatementCSV(content string, options models.StatementParseO
 // ImportStatementRows applies the user-confirmed preview atomically.
 func (a *App) ImportStatementRows(entries []models.StatementEntry, options models.StatementImportOptions) (models.StatementImportResult, error) {
 	return a.db.ImportStatementRows(entries, options)
+}
+
+// AddRecurringSchedule stores a rule and generates its occurrences through the current month.
+func (a *App) AddRecurringSchedule(description string, amount string, startDate string, endDate string, frequency string, category string, subcategory string, paymentMethod string, tags string, isPaid bool) error {
+	amountCents, err := parseAmountToCents(amount)
+	if err != nil {
+		return err
+	}
+	schedule := models.RecurringSchedule{
+		UUID: uuid.New().String(), Description: description, AmountCents: amountCents,
+		StartDate: startDate, EndDate: endDate, Frequency: frequency, Category: category,
+		Subcategory: subcategory, PaymentMethod: paymentMethod, Tags: tags, IsPaid: isPaid, Active: true,
+	}
+	if err := a.db.SaveRecurringSchedule(schedule); err != nil {
+		return err
+	}
+	if _, err = a.db.GenerateRecurringTransactions(lastDayOfCurrentMonth()); err != nil {
+		_ = a.db.SoftDeleteRecurringSchedule(schedule.UUID)
+		return err
+	}
+	return nil
+}
+
+func (a *App) GetRecurringSchedules() ([]models.RecurringSchedule, error) {
+	return a.db.GetRecurringSchedules()
+}
+
+func (a *App) StopRecurringSchedule(scheduleUUID string) error {
+	if _, err := uuid.Parse(scheduleUUID); err != nil {
+		return fmt.Errorf("invalid recurring schedule UUID: %w", err)
+	}
+	return a.db.SoftDeleteRecurringSchedule(scheduleUUID)
+}
+
+func (a *App) GenerateRecurringTransactions(throughDate string) (int, error) {
+	return a.db.GenerateRecurringTransactions(throughDate)
+}
+
+func (a *App) SaveBudget(month string, category string, amount string) error {
+	amountCents, err := parseAmountToCents(amount)
+	if err != nil {
+		return err
+	}
+	return a.db.SaveBudget(month, category, amountCents)
+}
+
+func (a *App) DeleteBudget(month string, category string) error {
+	return a.db.DeleteBudget(month, category)
+}
+
+func (a *App) GetBudgetSummaries(month string) ([]models.BudgetSummary, error) {
+	return a.db.GetBudgetSummaries(month)
 }
 
 // --- CATEGORIES BRIDGE ---

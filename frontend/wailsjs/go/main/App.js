@@ -6,8 +6,24 @@ export function AddCategory(arg1, arg2) {
   return window['go']['main']['App']['AddCategory'](arg1, arg2);
 }
 
+export function AddRecurringSchedule(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+  return window['go']['main']['App']['AddRecurringSchedule'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+}
+
 export function AddSetting(arg1, arg2) {
   return window['go']['main']['App']['AddSetting'](arg1, arg2);
+}
+
+export function DeleteBudget(arg1, arg2) {
+  return window['go']['main']['App']['DeleteBudget'](arg1, arg2);
+}
+
+export function GenerateRecurringTransactions(arg1) {
+  return window['go']['main']['App']['GenerateRecurringTransactions'](arg1);
+}
+
+export function GetBudgetSummaries(arg1) {
+  return window['go']['main']['App']['GetBudgetSummaries'](arg1);
 }
 
 export function GetCategories() {
@@ -24,6 +40,10 @@ export function GetFinancialMetrics(arg1, arg2) {
 
 export function GetNotificationsEnabled() {
   return window['go']['main']['App']['GetNotificationsEnabled']();
+}
+
+export function GetRecurringSchedules() {
+  return window['go']['main']['App']['GetRecurringSchedules']();
 }
 
 export function GetSettings(arg1) {
@@ -62,6 +82,14 @@ export function RestoreTransaction(arg1) {
   return window['go']['main']['App']['RestoreTransaction'](arg1);
 }
 
+export function SaveBudget(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveBudget'](arg1, arg2, arg3);
+}
+
+export function SaveInstallmentTransactions(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
+  return window['go']['main']['App']['SaveInstallmentTransactions'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+}
+
 export function SaveTransaction(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
   return window['go']['main']['App']['SaveTransaction'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
@@ -84,6 +112,10 @@ export function SoftDeleteCategory(arg1) {
 
 export function SoftDeleteTransaction(arg1) {
   return window['go']['main']['App']['SoftDeleteTransaction'](arg1);
+}
+
+export function StopRecurringSchedule(arg1) {
+  return window['go']['main']['App']['StopRecurringSchedule'](arg1);
 }
 
 export function UpdateCategory(arg1, arg2, arg3) {
