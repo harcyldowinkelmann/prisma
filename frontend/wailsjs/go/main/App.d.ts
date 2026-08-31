@@ -8,7 +8,11 @@ export function AddRecurringSchedule(arg1:string,arg2:string,arg3:string,arg4:st
 
 export function AddSetting(arg1:string,arg2:string):Promise<void>;
 
+export function CreateBackup():Promise<string>;
+
 export function DeleteBudget(arg1:string,arg2:string):Promise<void>;
+
+export function ExportTransactionsCSV():Promise<string>;
 
 export function GenerateRecurringTransactions(arg1:string):Promise<number>;
 
@@ -39,6 +43,8 @@ export function InactivateSetting(arg1:string,arg2:string):Promise<void>;
 export function InspectStatementCSV(arg1:string,arg2:string,arg3:boolean):Promise<models.StatementInspection>;
 
 export function PreviewStatementCSV(arg1:string,arg2:models.StatementParseOptions):Promise<models.StatementPreview>;
+
+export function RestoreBackup():Promise<string>;
 
 export function RestoreTransaction(arg1:string):Promise<string>;
 

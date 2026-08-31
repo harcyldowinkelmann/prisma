@@ -14,8 +14,16 @@ export function AddSetting(arg1, arg2) {
   return window['go']['main']['App']['AddSetting'](arg1, arg2);
 }
 
+export function CreateBackup() {
+  return window['go']['main']['App']['CreateBackup']();
+}
+
 export function DeleteBudget(arg1, arg2) {
   return window['go']['main']['App']['DeleteBudget'](arg1, arg2);
+}
+
+export function ExportTransactionsCSV() {
+  return window['go']['main']['App']['ExportTransactionsCSV']();
 }
 
 export function GenerateRecurringTransactions(arg1) {
@@ -76,6 +84,10 @@ export function InspectStatementCSV(arg1, arg2, arg3) {
 
 export function PreviewStatementCSV(arg1, arg2) {
   return window['go']['main']['App']['PreviewStatementCSV'](arg1, arg2);
+}
+
+export function RestoreBackup() {
+  return window['go']['main']['App']['RestoreBackup']();
 }
 
 export function RestoreTransaction(arg1) {

@@ -51,3 +51,25 @@ func TestParseAmountToCentsRejectsInvalidValues(t *testing.T) {
 		})
 	}
 }
+
+func TestEnsureFileExtension(t *testing.T) {
+	testCases := []struct {
+		name      string
+		path      string
+		extension string
+		want      string
+	}{
+		{name: "adds missing extension", path: `C:\Exports\prisma-backup`, extension: ".json", want: `C:\Exports\prisma-backup.json`},
+		{name: "keeps matching extension", path: `C:\Exports\prisma-backup.json`, extension: ".json", want: `C:\Exports\prisma-backup.json`},
+		{name: "matches extension case insensitively", path: `C:\Exports\transactions.CSV`, extension: ".csv", want: `C:\Exports\transactions.CSV`},
+		{name: "appends requested extension after another one", path: `C:\Exports\backup.txt`, extension: ".json", want: `C:\Exports\backup.txt.json`},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := ensureFileExtension(testCase.path, testCase.extension); got != testCase.want {
+				t.Fatalf("expected %q, got %q", testCase.want, got)
+			}
+		})
+	}
+}

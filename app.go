@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"prisma/internal/database"
 	"prisma/internal/models"
 	"prisma/internal/notifier"
@@ -13,7 +17,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+const maxBackupFileSize int64 = 100 * 1024 * 1024
 
 // App struct
 type App struct {
@@ -282,6 +289,108 @@ func (a *App) GetCurrencyCode() (string, error) {
 // SetCurrencyCode persists the currency selected for monetary values.
 func (a *App) SetCurrencyCode(currencyCode string) error {
 	return a.db.SetCurrencyCode(currencyCode)
+}
+
+// ExportTransactionsCSV saves every active and archived transaction to a spreadsheet-friendly file.
+func (a *App) ExportTransactionsCSV() (string, error) {
+	content, err := a.db.BuildTransactionsCSV()
+	if err != nil {
+		return "", err
+	}
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Export Transactions",
+		DefaultFilename: "prisma-transactions-" + time.Now().Format("2006-01-02") + ".csv",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "CSV Files (*.csv)", Pattern: "*.csv"},
+		},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	path = ensureFileExtension(path, ".csv")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		return "", fmt.Errorf("error saving transaction export: %w", err)
+	}
+	return path, nil
+}
+
+// CreateBackup saves a complete, versioned snapshot of Prisma data.
+func (a *App) CreateBackup() (string, error) {
+	backup, err := a.db.BuildBackup(time.Now())
+	if err != nil {
+		return "", err
+	}
+	content, err := json.MarshalIndent(backup, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("error encoding backup: %w", err)
+	}
+	content = append(content, '\n')
+
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Create Prisma Backup",
+		DefaultFilename: "prisma-backup-" + time.Now().Format("2006-01-02-150405") + ".json",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Prisma Backup Files (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	path = ensureFileExtension(path, ".json")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		return "", fmt.Errorf("error saving backup: %w", err)
+	}
+	return path, nil
+}
+
+// RestoreBackup opens, validates, and atomically restores a complete Prisma backup.
+func (a *App) RestoreBackup() (string, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Restore Prisma Backup",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Prisma Backup Files (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("error inspecting backup file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("the selected backup is not a regular file")
+	}
+	if info.Size() > maxBackupFileSize {
+		return "", fmt.Errorf("the selected backup exceeds the 100 MB limit")
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("error reading backup file: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	var backup models.BackupData
+	if err := decoder.Decode(&backup); err != nil {
+		return "", fmt.Errorf("invalid backup file: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return "", fmt.Errorf("invalid backup file: unexpected trailing content")
+	}
+	if err := a.db.RestoreBackup(backup); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func ensureFileExtension(path string, extension string) string {
+	if strings.EqualFold(filepath.Ext(path), extension) {
+		return path
+	}
+	return path + extension
 }
 
 // GetFinancialMetrics returns calculated totals for an inclusive date range.

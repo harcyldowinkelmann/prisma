@@ -76,6 +76,83 @@
           </v-card-text>
         </v-card>
 
+        <v-card v-else-if="activeTab === 'data'" variant="flat">
+          <v-card-title>Data Management</v-card-title>
+          <v-card-subtitle>
+            Export transactions or protect all of your Prisma data with a portable backup.
+          </v-card-subtitle>
+
+          <v-card-text class="pt-6">
+            <v-list lines="three" class="border rounded-lg">
+              <v-list-item
+                prepend-icon="mdi-file-delimited-outline"
+                title="Export Transactions"
+                subtitle="Save active and archived transactions as a CSV file for spreadsheets."
+              >
+                <template #append>
+                  <v-btn
+                    color="primary"
+                    variant="tonal"
+                    :loading="dataOperation === 'csv'"
+                    :disabled="Boolean(dataOperation)"
+                    @click="exportTransactions"
+                  >
+                    Export CSV
+                  </v-btn>
+                </template>
+              </v-list-item>
+
+              <v-divider></v-divider>
+
+              <v-list-item
+                prepend-icon="mdi-database-export-outline"
+                title="Create Complete Backup"
+                subtitle="Save transactions, categories, preferences, recurring schedules, and budgets in one JSON file."
+              >
+                <template #append>
+                  <v-btn
+                    color="primary"
+                    variant="tonal"
+                    :loading="dataOperation === 'backup'"
+                    :disabled="Boolean(dataOperation)"
+                    @click="createBackup"
+                  >
+                    Create Backup
+                  </v-btn>
+                </template>
+              </v-list-item>
+
+              <v-divider></v-divider>
+
+              <v-list-item
+                prepend-icon="mdi-database-import-outline"
+                title="Restore Complete Backup"
+                subtitle="Replace the current local data with a previously created Prisma backup."
+              >
+                <template #append>
+                  <v-btn
+                    color="error"
+                    variant="tonal"
+                    :loading="dataOperation === 'restore'"
+                    :disabled="Boolean(dataOperation)"
+                    @click="openRestoreDialog"
+                  >
+                    Restore Backup
+                  </v-btn>
+                </template>
+              </v-list-item>
+            </v-list>
+
+            <v-alert
+              type="info"
+              variant="tonal"
+              density="comfortable"
+              class="mt-4"
+              text="Backups are stored only in the location you choose. Keep a copy in a safe place."
+            ></v-alert>
+          </v-card-text>
+        </v-card>
+
         <v-card v-else variant="flat">
           <v-card-title class="d-flex align-center pe-2">
             <v-text-field
@@ -157,6 +234,41 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="restoreDialogOpen" max-width="560px" persistent>
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon color="error" class="me-2">mdi-alert-outline</v-icon>
+          Restore Complete Backup
+        </v-card-title>
+        <v-card-text>
+          <p class="mb-3">
+            Restoring a backup replaces all current transactions, categories, preferences,
+            recurring schedules, and budgets. This action cannot be undone.
+          </p>
+          <p class="mb-4">Create a fresh backup first if you may need the current data later.</p>
+          <v-checkbox
+            v-model="restoreAcknowledged"
+            color="error"
+            hide-details
+            label="I understand that the current data will be replaced."
+          ></v-checkbox>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="closeRestoreDialog">Cancel</v-btn>
+          <v-btn
+            color="error"
+            variant="flat"
+            :disabled="!restoreAcknowledged"
+            :loading="dataOperation === 'restore'"
+            @click="restoreBackup"
+          >
+            Choose Backup and Restore
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar
       v-model="feedback.show"
       :color="feedback.color"
@@ -181,17 +293,21 @@ import {
   GetNotificationsEnabled,
   SetNotificationsEnabled,
   GetCurrencyCode,
-  SetCurrencyCode
+  SetCurrencyCode,
+  ExportTransactionsCSV,
+  CreateBackup,
+  RestoreBackup
 } from '../../wailsjs/go/main/App';
 
-const emit = defineEmits(['currency-changed']);
+const emit = defineEmits(['currency-changed', 'data-restored']);
 
 const tabs = [
   { title: 'Subcategories', value: 'subcategories' },
   { title: 'Payment Methods', value: 'payment_methods' },
   { title: 'Tags', value: 'tags' },
   { title: 'Currency', value: 'currency' },
-  { title: 'Notifications', value: 'notifications' }
+  { title: 'Notifications', value: 'notifications' },
+  { title: 'Data Management', value: 'data' }
 ];
 
 const activeTab = ref('subcategories');
@@ -204,6 +320,9 @@ const notificationsSaving = ref(false);
 const currencyCode = ref('USD');
 const currencyLoading = ref(false);
 const currencySaving = ref(false);
+const dataOperation = ref('');
+const restoreDialogOpen = ref(false);
+const restoreAcknowledged = ref(false);
 
 const currencyOptions = [
   { code: 'AUD', name: 'Australian Dollar (AUD)' },
@@ -230,6 +349,8 @@ const filteredItems = computed(() => {
 });
 
 async function loadData() {
+  if (activeTab.value === 'data') return;
+
   if (activeTab.value === 'notifications') {
     notificationsLoading.value = true;
     try {
@@ -325,6 +446,64 @@ async function saveCurrencyCode(newCurrencyCode) {
     await loadData();
   } finally {
     currencySaving.value = false;
+  }
+}
+
+async function exportTransactions() {
+  if (dataOperation.value) return;
+  dataOperation.value = 'csv';
+  try {
+    const path = await ExportTransactionsCSV();
+    if (path) showFeedback(`Transactions exported to ${path}`, 'success');
+  } catch (err) {
+    console.error('Error exporting transactions:', err);
+    showFeedback('Could not export the transactions.', 'error');
+  } finally {
+    dataOperation.value = '';
+  }
+}
+
+async function createBackup() {
+  if (dataOperation.value) return;
+  dataOperation.value = 'backup';
+  try {
+    const path = await CreateBackup();
+    if (path) showFeedback(`Complete backup saved to ${path}`, 'success');
+  } catch (err) {
+    console.error('Error creating backup:', err);
+    showFeedback('Could not create the backup.', 'error');
+  } finally {
+    dataOperation.value = '';
+  }
+}
+
+function openRestoreDialog() {
+  restoreAcknowledged.value = false;
+  restoreDialogOpen.value = true;
+}
+
+function closeRestoreDialog() {
+  if (dataOperation.value === 'restore') return;
+  restoreDialogOpen.value = false;
+  restoreAcknowledged.value = false;
+}
+
+async function restoreBackup() {
+  if (dataOperation.value || !restoreAcknowledged.value) return;
+  dataOperation.value = 'restore';
+  try {
+    const path = await RestoreBackup();
+    if (path) {
+      restoreDialogOpen.value = false;
+      restoreAcknowledged.value = false;
+      emit('data-restored');
+      showFeedback(`Backup restored from ${path}`, 'success');
+    }
+  } catch (err) {
+    console.error('Error restoring backup:', err);
+    showFeedback(`Could not restore the backup. ${String(err)}`, 'error');
+  } finally {
+    dataOperation.value = '';
   }
 }
 

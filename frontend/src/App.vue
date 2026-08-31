@@ -81,7 +81,10 @@
 
         <!-- TAB 5: SETTINGS -->
         <v-window-item value="settings">
-          <Settings @currency-changed="onCurrencyChanged" />
+          <Settings
+            @currency-changed="onCurrencyChanged"
+            @data-restored="onDataRestored"
+          />
         </v-window-item>
       </v-window>
 
@@ -195,6 +198,11 @@ async function restoreTransaction(uuid) {
 
 function onCurrencyChanged(newCurrencyCode) {
   currencyCode.value = newCurrencyCode;
+}
+
+async function onDataRestored() {
+  await loadCurrency();
+  await loadAllData();
 }
 
 onMounted(() => {
