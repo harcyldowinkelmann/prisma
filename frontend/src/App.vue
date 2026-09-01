@@ -1,92 +1,100 @@
 <template>
   <v-app>
-    <v-main>
-      <!-- STATIC HEADER (Always visible) -->
-      <Metrics :currency-code="currencyCode" :refresh-key="metricsRefreshKey" />
+    <v-main class="app-main">
+      <div class="app-shell">
+        <!-- PRIMARY NAVIGATION -->
+        <v-tabs
+          v-model="activeTab"
+          bg-color="transparent"
+          align-tabs="center"
+          class="app-navigation"
+        >
+          <v-tab value="dashboard">Dashboard</v-tab>
+          <v-tab value="metrics">Metrics & Reports</v-tab>
+          <v-tab value="transactions">All Transactions</v-tab>
+          <v-tab value="planning">Planning</v-tab>
+          <v-tab value="settings">Settings</v-tab>
+        </v-tabs>
 
-      <!-- NAVIGATION DIRECTLY BELOW THE HEADER -->
-      <v-tabs v-model="activeTab" bg-color="transparent" align-tabs="center" class="mt-2 mb-4">
-        <v-tab value="dashboard">Dashboard</v-tab>
-        <v-tab value="metrics">Metrics & Reports</v-tab>
-        <v-tab value="transactions">All Transactions</v-tab>
-        <v-tab value="planning">Planning</v-tab>
-        <v-tab value="settings">Settings</v-tab>
-      </v-tabs>
+        <!-- DYNAMIC CONTENT (Changes with the selected tab) -->
+        <v-window v-model="activeTab" class="app-content">
+          <!-- TAB 1: DASHBOARD -->
+          <v-window-item value="dashboard" class="content-window-item">
+            <Metrics :currency-code="currencyCode" :refresh-key="metricsRefreshKey" />
 
-      <!-- DYNAMIC CONTENT (Changes with the selected tab) -->
-      <v-window v-model="activeTab">
-        <!-- TAB 1: DASHBOARD (Current three-column view) -->
-        <v-window-item value="dashboard">
-          
-          <v-container fluid class="pa-4">
-            <!-- Header for Dashboard with Add Column Button -->
-            <div class="d-flex justify-end mb-4">
-              <v-btn color="primary" prepend-icon="mdi-plus" @click="$refs.categoryModalRef.open()">
-                Add Column
-              </v-btn>
-            </div>
-
-            <!-- Horizontal Scroll Container -->
-            <div 
-              class="d-flex overflow-x-auto flex-nowrap" 
-              style="gap: 16px; padding-bottom: 16px;" 
-              @wheel="handleScroll"
-              ref="scrollContainer"
-            >
-              <div 
-                v-for="cat in categories" 
-                :key="cat.uuid" 
-                style="min-width: 400px; max-width: 400px;"
-                @wheel.stop
-              >
-                <Body 
-                  :title="cat.name" 
-                  :items="transactionsByCategory[cat.name] || []"
-                  :currency-code="currencyCode"
-                  @request-add="openModal" 
-                  @request-edit="openEditModal" 
-                  @request-inactivate="inactivateTransaction" 
-                />
+            <v-container fluid class="pa-4 pt-0">
+              <!-- Header for Dashboard with Add Column Button -->
+              <div class="d-flex justify-end mb-4">
+                <v-btn color="primary" prepend-icon="mdi-plus" @click="$refs.categoryModalRef.open()">
+                  Add Column
+                </v-btn>
               </div>
-            </div>
-          </v-container>
-        </v-window-item>
 
-        <!-- TAB 2: METRICS & REPORTS -->
-        <v-window-item value="metrics">
-          <Reports :currency-code="currencyCode" :refresh-key="metricsRefreshKey" />
-        </v-window-item>
+              <!-- Horizontal Scroll Container -->
+              <div
+                ref="scrollContainer"
+                class="d-flex overflow-x-auto flex-nowrap"
+                style="gap: 16px; padding-bottom: 16px;"
+                @wheel="handleScroll"
+              >
+                <div
+                  v-for="cat in categories"
+                  :key="cat.uuid"
+                  style="min-width: 400px; max-width: 400px;"
+                  @wheel.stop
+                >
+                  <Body
+                    :title="cat.name"
+                    :items="transactionsByCategory[cat.name] || []"
+                    :currency-code="currencyCode"
+                    @request-add="openModal"
+                    @request-edit="openEditModal"
+                    @request-inactivate="inactivateTransaction"
+                  />
+                </div>
+              </div>
+            </v-container>
+          </v-window-item>
 
-        <!-- TAB 3: ALL TRANSACTIONS -->
-        <v-window-item value="transactions">
-          <Transactions
-            :currency-code="currencyCode"
-            :refresh-key="transactionsRefreshKey"
-            @request-add="openModal"
-            @request-edit="openEditModal"
-            @request-archive="inactivateTransaction"
-            @request-restore="restoreTransaction"
-            @data-changed="loadAllData"
-          />
-        </v-window-item>
+          <!-- TAB 2: METRICS & REPORTS -->
+          <v-window-item value="metrics" class="content-window-item">
+            <Reports class="full-page-view" :currency-code="currencyCode" :refresh-key="metricsRefreshKey" />
+          </v-window-item>
 
-        <!-- TAB 4: PLANNING -->
-        <v-window-item value="planning">
-          <Planning
-            :currency-code="currencyCode"
-            :refresh-key="transactionsRefreshKey"
-            @data-changed="loadAllData"
-          />
-        </v-window-item>
+          <!-- TAB 3: ALL TRANSACTIONS -->
+          <v-window-item value="transactions" class="content-window-item">
+            <Transactions
+              class="full-page-view"
+              :currency-code="currencyCode"
+              :refresh-key="transactionsRefreshKey"
+              @request-add="openModal"
+              @request-edit="openEditModal"
+              @request-archive="inactivateTransaction"
+              @request-restore="restoreTransaction"
+              @data-changed="loadAllData"
+            />
+          </v-window-item>
 
-        <!-- TAB 5: SETTINGS -->
-        <v-window-item value="settings">
-          <Settings
-            @currency-changed="onCurrencyChanged"
-            @data-restored="onDataRestored"
-          />
-        </v-window-item>
-      </v-window>
+          <!-- TAB 4: PLANNING -->
+          <v-window-item value="planning" class="content-window-item">
+            <Planning
+              class="full-page-view"
+              :currency-code="currencyCode"
+              :refresh-key="transactionsRefreshKey"
+              @data-changed="loadAllData"
+            />
+          </v-window-item>
+
+          <!-- TAB 5: SETTINGS -->
+          <v-window-item value="settings" class="content-window-item">
+            <Settings
+              class="full-page-view"
+              @currency-changed="onCurrencyChanged"
+              @data-restored="onDataRestored"
+            />
+          </v-window-item>
+        </v-window>
+      </div>
 
       <TransactionModal
         v-model="isModalOpen"
@@ -218,6 +226,47 @@ function onTransactionSaved() {
 </script>
 
 <style>
+  .app-main {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .app-navigation {
+    flex: 0 0 auto;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  }
+
+  .app-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .app-content > .v-window__container {
+    height: 100%;
+  }
+
+  .content-window-item {
+    min-height: 100%;
+  }
+
+  .full-page-view {
+    height: 100%;
+  }
+
+  .full-page-view > .v-card,
+  .full-page-view > .v-row {
+    width: 100%;
+    min-height: 100%;
+  }
+
   #logo {
     display: block;
     width: 50%;
