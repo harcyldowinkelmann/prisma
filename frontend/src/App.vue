@@ -24,7 +24,7 @@
 
             <v-container fluid class="pa-4 pt-0">
               <!-- Header for Dashboard with Add Column Button -->
-              <div class="d-flex justify-end mb-4">
+              <div class="d-flex justify-start mb-4">
                 <v-btn color="primary" prepend-icon="mdi-plus" @click="$refs.categoryModalRef.open()">
                   Add Column
                 </v-btn>
